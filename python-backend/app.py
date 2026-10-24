@@ -473,12 +473,22 @@ def format_hours(hours: float) -> str:
     return f"{h} hr {m} min"
 
 
-def calculate_travel_time(distance_km: float) -> Dict[str, Any]:
+def calculate_travel_time(
+    distance_km: float,
+    road_type: int = 2,
+    traffic_level: float = 0.7,
+    time_of_day: int = 1,
+) -> Dict[str, Any]:
     """Calculate estimated travel time using the Random Forest ML model with transparent fallback.
+
+    Default parameters represent Indian National Highway / Expressway driving conditions:
+      - road_type: 2 (National Highway / Expressway)
+      - traffic_level: 0.7 (standard highway flow; ~75-85 km/h cruise speed)
+      - time_of_day: 1 (daytime travel)
 
     Returns:
         dict with:
-            - 'time': formatted string (e.g., '12 hr 30 min')
+            - 'time': formatted string (e.g., '3 hr 55 min')
             - 'hours': non-negative finite float hours
             - 'method': 'ml_random_forest' | 'fallback_constant_speed' | 'zero_distance'
     """
@@ -492,9 +502,10 @@ def calculate_travel_time(distance_km: float) -> Dict[str, Any]:
 
     if ml_model is not None:
         try:
-            # Documented feature set: [distance_km, road_type, traffic_level, time_of_day]
-            # Standard highway conditions: road_type=1 (highway), traffic_level=1.0 (normal), time_of_day=1 (afternoon)
-            features = pd.DataFrame([[distance_km, 1, 1.0, 1]], columns=ML_FEATURE_NAMES)
+            features = pd.DataFrame(
+                [[distance_km, road_type, traffic_level, time_of_day]],
+                columns=ML_FEATURE_NAMES,
+            )
             pred = float(ml_model.predict(features)[0])
             if not (math.isnan(pred) or math.isinf(pred) or pred <= 0):
                 hours = pred
@@ -528,43 +539,113 @@ def format_duration(seconds: float) -> str:
     return f"{hours} hr {minutes} min"
 
 
+def format_maneuver_instruction(m_type: str, modifier: str, name: str) -> str:
+    """Produce a human-readable driving instruction from OSRM maneuver data."""
+    name_str = f" on {name}" if name and name.strip() else ""
+    mod_str = f" {modifier}" if modifier and modifier not in ["straight", "none"] else ""
+
+    if m_type == "depart":
+        return f"Depart{name_str}"
+    if m_type == "arrive":
+        return "Arrive at destination"
+    if m_type in ["turn", "fork", "end of road"]:
+        return f"Turn{mod_str}{name_str}"
+    if m_type == "merge":
+        return f"Merge{mod_str}{name_str}"
+    if m_type in ["on ramp", "off ramp"]:
+        return f"Take ramp{mod_str}{name_str}"
+    if m_type == "roundabout":
+        return f"Enter roundabout and take exit{name_str}"
+    if m_type == "new name":
+        return f"Continue{name_str}"
+    return f"Continue{mod_str}{name_str}"
+
+
+_OSRM_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
 def get_osrm_route(coordinates: List[List[float]]) -> Optional[Dict[str, Any]]:
-    """Query OSRM for real road distance, duration and geometry.
+    """Query OSRM for real road distance, duration, turn-by-turn steps, and geometry.
 
     Args:
         coordinates: ordered waypoints as [lat, lon] pairs.
 
     Returns:
-        {"distance_km", "duration_s", "geometry": [[lat, lon], ...]} on success,
+        {"distance_km", "duration_s", "geometry": [[lat, lon], ...], "steps": [...]} on success,
         or None if the routing service is unavailable / returns no route.
     """
     if not coordinates or len(coordinates) < 2:
         return None
+
+    # Check in-memory cache
+    cache_key = ";".join(f"{round(lat, 4)},{round(lon, 4)}" for lat, lon in coordinates)
+    if cache_key in _OSRM_CACHE:
+        return _OSRM_CACHE[cache_key]
 
     try:
         # OSRM expects "lon,lat" pairs separated by ";"
         waypoints = ";".join(f"{lon},{lat}" for lat, lon in coordinates)
         url = (
             f"{OSRM_BASE}/route/v1/driving/{waypoints}"
-            "?overview=full&geometries=geojson"
+            "?overview=full&geometries=geojson&steps=true"
         )
         req = urllib.request.Request(url, headers={"User-Agent": "ai-navigation/1.0"})
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=4) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         if data.get("code") == "Ok" and data.get("routes"):
             route = data["routes"][0]
             # GeoJSON is [lon, lat]; convert to [lat, lon] for Leaflet
             geometry = [[lat, lon] for lon, lat in route["geometry"]["coordinates"]]
-            return {
+
+            steps: List[Dict[str, Any]] = []
+            for leg in route.get("legs", []):
+                for s in leg.get("steps", []):
+                    dist_km = round(s.get("distance", 0) / 1000.0, 2)
+                    m = s.get("maneuver", {})
+                    m_type = m.get("type", "continue")
+                    modifier = m.get("modifier", "")
+                    name = s.get("name", "")
+                    if dist_km < 0.1 and m_type not in ["depart", "arrive"]:
+                        continue
+                    instruction = format_maneuver_instruction(m_type, modifier, name)
+                    steps.append({
+                        "instruction": instruction,
+                        "distance_km": dist_km,
+                        "duration": format_duration(s.get("duration", 0)),
+                        "type": m_type,
+                        "modifier": modifier,
+                    })
+
+            result = {
                 "distance_km": route["distance"] / 1000.0,
                 "duration_s": route["duration"],
                 "geometry": geometry,
+                "steps": steps,
             }
+            _OSRM_CACHE[cache_key] = result
+            return result
     except (urllib.error.URLError, urllib.error.HTTPError, ValueError, KeyError, TimeoutError) as e:
         print(f"OSRM lookup notice ({e}); using graph and ML estimates")
 
     return None
+
+
+def get_path_coordinates(G: nx.Graph, path: List[str]) -> List[List[float]]:
+    """Assemble [lat, lon] coordinates for all cities in a path."""
+    coords: List[List[float]] = []
+    for city in path:
+        if city in G.nodes:
+            node_data = G.nodes[city]
+            if 'lat' in node_data and 'lon' in node_data:
+                coords.append([node_data['lat'], node_data['lon']])
+                continue
+            if 'pos' in node_data:
+                coords.append([node_data['pos'][0], node_data['pos'][1]])
+                continue
+        if city in CITY_COORDS:
+            coords.append([CITY_COORDS[city][0], CITY_COORDS[city][1]])
+    return coords
 
 
 def find_alternate_routes(
@@ -578,7 +659,8 @@ def find_alternate_routes(
 
     Returns:
         tuple (alternates_list, alternates_detail_list)
-        where each detail contains path, distance, formatted time, hours, and method.
+        where each detail contains path, distance, formatted time, hours, method,
+        waypoint coordinates, and road polyline geometry.
     """
     try:
         alternates: List[List[str]] = []
@@ -592,14 +674,34 @@ def find_alternate_routes(
 
             dist = float(nx.path_weight(G, path, weight='length'))
             time_info = calculate_travel_time(dist)
+            alt_coords = get_path_coordinates(G, path)
+            osrm = get_osrm_route(alt_coords)
+            if osrm:
+                alt_dist = round(float(osrm["distance_km"]), 2)
+                alt_geometry = osrm["geometry"]
+                alt_osrm_time = format_duration(osrm["duration_s"])
+                alt_time = format_duration(osrm["duration_s"] * 1.10)
+                alt_hours = round((osrm["duration_s"] * 1.10) / 3600.0, 2)
+                alt_method = "real_road_network"
+            else:
+                alt_dist = round(dist, 2)
+                alt_geometry = alt_coords
+                alt_osrm_time = None
+                time_info = calculate_travel_time(alt_dist)
+                alt_time = time_info["time"]
+                alt_hours = time_info["hours"]
+                alt_method = time_info["method"]
 
             alternates.append(path)
             details.append({
                 "path": path,
-                "distance": round(dist, 2),
-                "time": time_info["time"],
-                "hours": time_info["hours"],
-                "method": time_info["method"],
+                "distance": alt_dist,
+                "time": alt_time,
+                "hours": alt_hours,
+                "method": alt_method,
+                "osrm_time": alt_osrm_time,
+                "coordinates": alt_coords,
+                "geometry": alt_geometry,
             })
 
             if len(alternates) >= k:
@@ -655,35 +757,45 @@ def predict_route():
             return jsonify({"error": f"No route found between {source} and {destination}"}), 404
 
         # Assemble waypoint coordinates [lat, lon]
-        coordinates: List[List[float]] = []
-        for city in path:
-            node_data = road_network.nodes[city]
-            if 'lat' in node_data and 'lon' in node_data:
-                coordinates.append([node_data['lat'], node_data['lon']])
-            elif 'pos' in node_data:
-                lat, lon = node_data['pos']
-                coordinates.append([lat, lon])
-            elif city in CITY_COORDS:
-                lat, lon = CITY_COORDS[city]
-                coordinates.append([lat, lon])
-
-        # Compute ML travel time prediction from Random Forest model
-        ml_prediction = calculate_travel_time(distance_km)
-        time_str = ml_prediction["time"]
-        prediction_method = ml_prediction["method"]
+        coordinates = get_path_coordinates(road_network, path)
         geometry = coordinates
         osrm_time = None
 
-        # Check OSRM for real road polyline geometry when online
+        # Check OSRM for real road polyline geometry and exact road distance/duration
         osrm = get_osrm_route(coordinates)
         if osrm:
             geometry = osrm["geometry"]
+            distance_km = round(float(osrm["distance_km"]), 2)
             osrm_time = format_duration(osrm["duration_s"])
+            # Match Google Maps real-world road duration with 10% toll plaza and traffic buffer
+            time_str = format_duration(osrm["duration_s"] * 1.10)
+            prediction_method = "real_road_network"
+        else:
+            # Fallback to calibrated highway ML model
+            ml_prediction = calculate_travel_time(distance_km)
+            time_str = ml_prediction["time"]
+            prediction_method = ml_prediction["method"]
+
+        # Compute ML travel time prediction from Random Forest model
+        ml_prediction = calculate_travel_time(distance_km)
 
         # Find genuinely distinct alternative routes
         alternate_routes, alternate_details = find_alternate_routes(
             road_network, source, destination, main_path=path, k=2
         )
+
+        # Assemble turn-by-turn steps
+        steps = []
+        if osrm and "steps" in osrm and osrm["steps"]:
+            steps = osrm["steps"]
+        else:
+            for i, city in enumerate(path):
+                if i == 0:
+                    steps.append({"instruction": f"Depart from {city}", "distance_km": 0.0, "type": "depart"})
+                elif i == len(path) - 1:
+                    steps.append({"instruction": f"Arrive at destination in {city}", "distance_km": round(distance_km, 2), "type": "arrive"})
+                else:
+                    steps.append({"instruction": f"Continue through {city}", "distance_km": 0.0, "type": "continue"})
 
         response = {
             "path": path,
@@ -691,6 +803,7 @@ def predict_route():
             "time": time_str,
             "coordinates": coordinates,
             "geometry": geometry,
+            "steps": steps,
             "alternate_routes": alternate_routes,
             "alternate_route_details": alternate_details,
             "prediction_method": prediction_method,
@@ -738,4 +851,4 @@ load_ml_model()
 if __name__ == '__main__':
     print("Starting Flask API server...")
     debug_enabled = os.getenv("FLASK_DEBUG", "").lower() in {"1", "true", "yes"}
-    app.run(host='0.0.0.0', port=5000, debug=debug_enabled, use_reloader=debug_enabled)
+    app.run(host='0.0.0.0', port=5000, debug=debug_enabled, use_reloader=debug_enabled, threaded=True)

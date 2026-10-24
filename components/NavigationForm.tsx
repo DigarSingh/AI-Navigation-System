@@ -1,18 +1,36 @@
 "use client";
 
-import { useState } from "react";
-import { MapPin, Navigation, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Navigation, Loader2, LocateFixed, ArrowUpDown, X } from "lucide-react";
+import { ALL_CITIES } from "@/lib/cities";
 
 interface NavigationFormProps {
   onSubmit: (source: string, destination: string) => void;
   loading: boolean;
+  externalSource?: string;
+  externalGpsNotice?: string | null;
+  locating?: boolean;
+  onLocateMe?: () => void;
 }
 
-export default function NavigationForm({ onSubmit, loading }: NavigationFormProps) {
+export default function NavigationForm({
+  onSubmit,
+  loading,
+  externalSource,
+  externalGpsNotice,
+  locating = false,
+  onLocateMe,
+}: NavigationFormProps) {
   const [source, setSource] = useState("");
   const [destination, setDestination] = useState("");
-  // Which input is currently focused — drives the Quick Select suggestions
   const [activeField, setActiveField] = useState<"source" | "destination" | null>(null);
+
+  // Sync externalSource when user clicks GPS locate
+  useEffect(() => {
+    if (externalSource) {
+      setSource(externalSource);
+    }
+  }, [externalSource]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,148 +39,199 @@ export default function NavigationForm({ onSubmit, loading }: NavigationFormProp
     }
   };
 
-  // Fill the currently focused field when a Quick Select city is clicked
+  const handleSwap = () => {
+    setSource(destination);
+    setDestination(source);
+  };
+
   const handleQuickSelect = (city: string) => {
-    if (activeField === "source") {
+    if (activeField === "source" || (!source && destination)) {
       setSource(city);
-    } else if (activeField === "destination") {
+    } else {
       setDestination(city);
     }
   };
 
-  // Strategic cities for presentation - showcasing diverse routes across India
   const popularLocations = [
-    // Tier-1 Metro Cities (Financial & Tech Hubs)
     "Delhi",
+    "Dehradun",
     "Mumbai",
     "Bangalore",
     "Chennai",
     "Kolkata",
     "Hyderabad",
-    
-    // Iconic Tourist & Cultural Cities
-    "Jaipur",      // Pink City
-    "Agra",        // Taj Mahal
-    "Varanasi",    // Spiritual Capital
-    "Amritsar",    // Golden Temple
-    "Goa",         // Beach Paradise
-    "Mysore",      // Palace City
-    
-    // Geographic Extremes (For Impressive Long Routes)
-    "Srinagar",    // Northernmost (Kashmir)
-    "Thiruvananthapuram", // Southernmost (Kerala)
-    "Guwahati",    // Easternmost (Northeast)
-    "Jamnagar",    // Westernmost (Gujarat)
-    
-    // Strategic Transit Hubs
-    "Pune",        // IT Hub
-    "Ahmedabad",   // Industrial Capital
-    "Chandigarh",  // Planned City
-    "Kochi",       // Port City
+    "Jaipur",
+    "Pune",
+    "Ahmedabad",
+    "Chandigarh",
+    "Goa",
+    "Agra",
   ];
 
   return (
-    <div className="bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-2xl p-8 border-2 border-primary-200">
-      <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center gap-3">
-        <div className="bg-primary-500 p-2 rounded-lg">
-          <Navigation className="w-6 h-6 text-white" />
-        </div>
-        Plan Your Route
-      </h2>
+    <div className="glass-card rounded-2xl p-4 sm:p-5 m-3 border border-white/50 dark:border-white/10 shadow-xl transition-all">
+      <form onSubmit={handleSubmit} className="space-y-3.5">
+        {/* Origin & Destination inputs with connector */}
+        <div className="relative space-y-2">
+          {/* Visual connecting line between origin & destination */}
+          <div className="absolute left-[19px] top-[26px] bottom-[26px] w-[2px] bg-slate-300/80 dark:bg-slate-700 pointer-events-none" />
 
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Source Input */}
-        <div>
-          <label className="flex items-center gap-2 text-base font-bold text-gray-800 mb-3">
-            <MapPin className="w-5 h-5 text-green-600" />
-            Starting Point
-          </label>
-          <input
-            type="text"
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            onFocus={() => setActiveField("source")}
-            onBlur={() => setActiveField(null)}
-            placeholder="Enter starting point..."
-            className="w-full px-5 py-4 text-base font-medium border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-primary-300 focus:border-primary-500 outline-none transition bg-white text-gray-900 placeholder-gray-500"
-            disabled={loading}
-            required
-          />
+          {/* Source Input */}
+          <div className="relative flex items-center">
+            <div className="absolute left-3.5 flex items-center justify-center z-10">
+              <div className="w-3.5 h-3.5 rounded-full border-2 border-emerald-500 bg-white dark:bg-slate-900 flex items-center justify-center shadow-sm">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              </div>
+            </div>
+
+            <input
+              type="text"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              onFocus={() => setActiveField("source")}
+              onBlur={() => setActiveField(null)}
+              placeholder="Choose starting city..."
+              className="w-full pl-10 pr-24 py-2.5 text-sm font-semibold rounded-xl glass-input text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition shadow-sm"
+              disabled={loading}
+              required
+            />
+
+            <div className="absolute right-2.5 flex items-center gap-1">
+              {source && (
+                <button
+                  type="button"
+                  onClick={() => setSource("")}
+                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                  title="Clear origin"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {onLocateMe && (
+                <button
+                  type="button"
+                  onClick={onLocateMe}
+                  disabled={loading || locating}
+                  className="px-2.5 py-1 rounded-lg glass-card hover:bg-blue-50 dark:hover:bg-blue-950/70 text-blue-600 dark:text-blue-400 text-xs font-bold flex items-center gap-1 transition border border-blue-200/80 dark:border-blue-900/60 shadow-xs"
+                  title="Use current GPS location"
+                >
+                  {locating ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <LocateFixed className="w-3 h-3" />
+                  )}
+                  <span>GPS</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Swap Button */}
+          <div className="flex justify-end pr-2 -my-1 relative z-10">
+            <button
+              type="button"
+              onClick={handleSwap}
+              disabled={loading || (!source && !destination)}
+              className="p-1.5 rounded-full glass-card hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition shadow-sm border border-white/60 dark:border-white/10"
+              title="Reverse origin and destination"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Destination Input */}
+          <div className="relative flex items-center">
+            <div className="absolute left-3.5 flex items-center justify-center z-10">
+              <div className="w-3.5 h-3.5 rounded-full border-2 border-red-500 bg-white dark:bg-slate-900 flex items-center justify-center shadow-sm">
+                <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+              </div>
+            </div>
+
+            <input
+              type="text"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+              onFocus={() => setActiveField("destination")}
+              onBlur={() => setActiveField(null)}
+              placeholder="Choose destination city..."
+              className="w-full pl-10 pr-9 py-2.5 text-sm font-semibold rounded-xl glass-input text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition shadow-sm"
+              disabled={loading}
+              required
+            />
+
+            {destination && (
+              <button
+                type="button"
+                onClick={() => setDestination("")}
+                className="absolute right-3 p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                title="Clear destination"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Destination Input */}
-        <div>
-          <label className="flex items-center gap-2 text-base font-bold text-gray-800 mb-3">
-            <MapPin className="w-5 h-5 text-red-600" />
-            Destination
-          </label>
-          <input
-            type="text"
-            value={destination}
-            onChange={(e) => setDestination(e.target.value)}
-            onFocus={() => setActiveField("destination")}
-            onBlur={() => setActiveField(null)}
-            placeholder="Enter destination..."
-            className="w-full px-5 py-4 text-base font-medium border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-primary-300 focus:border-primary-500 outline-none transition bg-white text-gray-900 placeholder-gray-500"
-            disabled={loading}
-            required
-          />
-        </div>
+        {/* GPS status pill notice if active */}
+        {externalGpsNotice && (
+          <div className="px-3 py-1.5 rounded-xl glass-card text-xs text-blue-700 dark:text-blue-300 flex items-center gap-1.5 border border-blue-200/80 dark:border-blue-900/60 shadow-xs">
+            <LocateFixed className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="truncate">{externalGpsNotice}</span>
+          </div>
+        )}
 
-        {/* Submit Button */}
+        {/* Action Button */}
         <button
           type="submit"
           disabled={loading || !source.trim() || !destination.trim()}
-          className="w-full bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed text-white font-bold text-lg py-4 px-6 rounded-xl transition shadow-lg hover:shadow-xl flex items-center justify-center gap-3 transform hover:scale-105 active:scale-95"
+          className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm transition shadow-md hover:shadow-lg flex items-center justify-center gap-2 transform active:scale-[0.98]"
         >
           {loading ? (
             <>
-              <Loader2 className="w-6 h-6 animate-spin" />
-              Finding Best Route...
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Calculating Road Route...
             </>
           ) : (
             <>
-              <Navigation className="w-6 h-6" />
-              Find Best Route
+              <Navigation className="w-4 h-4 fill-white" />
+              Find Fastest Route
             </>
           )}
         </button>
       </form>
 
-      {/* Quick Select — shown only while an input is focused */}
-      {activeField && (() => {
-        const query = (activeField === "source" ? source : destination).trim().toLowerCase();
-        const matches = popularLocations.filter((city) =>
-          city.toLowerCase().includes(query)
-        );
+      {/* Quick Select Cities Chips */}
+      <div className="mt-3.5 pt-3 border-t border-slate-200/60 dark:border-slate-700/60">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            {activeField ? `Suggested for ${activeField === "source" ? "Origin" : "Destination"}` : "Popular Highway Hubs"}
+          </p>
+        </div>
 
-        return (
-          <div className="mt-8">
-            <p className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-              ⚡ Quick Select for {activeField === "source" ? "Starting Point" : "Destination"}:
-            </p>
-            {matches.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {matches.map((location) => (
-                  <button
-                    key={location}
-                    type="button"
-                    // Prevent the input from blurring before the click registers
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleQuickSelect(location)}
-                    disabled={loading}
-                    className="text-sm font-semibold px-4 py-2 bg-gradient-to-r from-gray-100 to-gray-200 hover:from-primary-100 hover:to-primary-200 hover:text-primary-700 text-gray-700 rounded-full transition-all disabled:opacity-50 shadow-sm hover:shadow-md border border-gray-300"
-                  >
-                    {location}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 italic">No matching cities</p>
-            )}
-          </div>
-        );
-      })()}
+        {(() => {
+          const query = (activeField === "source" ? source : destination).trim().toLowerCase();
+          const list = query
+            ? ALL_CITIES.filter((c) => c.toLowerCase().includes(query)).slice(0, 10)
+            : popularLocations;
+
+          return (
+            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto no-scrollbar pr-1">
+              {list.map((city) => (
+                <button
+                  key={city}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleQuickSelect(city)}
+                  disabled={loading}
+                  className="text-xs font-semibold px-2.5 py-1 rounded-lg glass-card hover:bg-blue-50/80 dark:hover:bg-slate-700/80 text-slate-700 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400 border border-white/60 dark:border-white/10 transition shadow-xs"
+                >
+                  {city}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
+      </div>
     </div>
   );
 }

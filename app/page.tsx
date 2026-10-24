@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import NavigationForm from "@/components/NavigationForm";
 import MapView from "@/components/MapView";
 import RouteDetails from "@/components/RouteDetails";
-import { Navigation, Sparkles } from "lucide-react";
+import NavigationHUD from "@/components/NavigationHUD";
+import { findNearestCity, ALL_CITIES } from "@/lib/cities";
+import { Compass, Sun, Moon } from "lucide-react";
 
 export interface AlternateRouteDetail {
   path: string[];
@@ -12,6 +14,16 @@ export interface AlternateRouteDetail {
   time: string;
   hours: number;
   method: string;
+  coordinates?: [number, number][];
+  geometry?: [number, number][];
+}
+
+export interface RouteStep {
+  instruction: string;
+  distance_km: number;
+  duration?: string;
+  type?: string;
+  modifier?: string;
 }
 
 export interface RouteData {
@@ -20,6 +32,7 @@ export interface RouteData {
   time: string;
   coordinates: [number, number][];
   geometry?: [number, number][];
+  steps?: RouteStep[];
   alternate_routes?: string[][];
   alternate_route_details?: AlternateRouteDetail[];
   prediction_method?: string;
@@ -30,12 +43,315 @@ export interface RouteData {
   destination?: string;
 }
 
+function computeHeading(c1: [number, number], c2: [number, number]): number {
+  const dLon = ((c2[1] - c1[1]) * Math.PI) / 180;
+  const lat1 = (c1[0] * Math.PI) / 180;
+  const lat2 = (c2[0] * Math.PI) / 180;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(dLon);
+  const brng = (Math.atan2(y, x) * 180) / Math.PI;
+  return (brng + 360) % 360;
+}
+
 export default function Home() {
   const [optimalRouteData, setOptimalRouteData] = useState<RouteData | null>(null);
   const [displayedRouteData, setDisplayedRouteData] = useState<RouteData | null>(null);
   const [isAlternateSelected, setIsAlternateSelected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  // GPS real-time user location state
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [externalSource, setExternalSource] = useState("");
+  const [gpsNotice, setGpsNotice] = useState<string | null>(null);
+
+  // Turn-by-Turn Live GPS Navigation Mode state
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [activeCarPosition, setActiveCarPosition] = useState<[number, number] | null>(null);
+  const [carHeading, setCarHeading] = useState(0);
+
+  const watchIdRef = useRef<number | null>(null);
+
+  // Initialize theme on mount from localStorage or system preference
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("ai_nav_theme") as "light" | "dark" | null;
+    const systemPrefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const initialTheme = savedTheme || (systemPrefersDark ? "dark" : "light");
+
+    setTheme(initialTheme);
+    applyThemeClass(initialTheme);
+
+    // Auto-detect with device GPS if browser permission is already granted
+    if (typeof window !== "undefined" && navigator.permissions && navigator.permissions.query) {
+      navigator.permissions
+        .query({ name: "geolocation" })
+        .then((permissionStatus) => {
+          if (permissionStatus.state === "granted") {
+            handleLocateMe();
+          }
+          permissionStatus.onchange = () => {
+            if (permissionStatus.state === "granted") {
+              handleLocateMe();
+            }
+          };
+        })
+        .catch(() => { });
+    }
+  }, []);
+
+  const applyThemeClass = (newTheme: "light" | "dark") => {
+    if (newTheme === "dark") {
+      document.documentElement.classList.add("dark");
+      document.body.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      document.body.classList.remove("dark");
+    }
+  };
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    localStorage.setItem("ai_nav_theme", nextTheme);
+    applyThemeClass(nextTheme);
+  };
+
+  // Web Speech API - Voice Guidance
+  const speakInstruction = (text: string) => {
+    if (!voiceEnabled || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.lang = "en-IN";
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("Speech synthesis error:", e);
+    }
+  };
+
+  // Helper to apply detected coordinates to map and form
+  const applyDetectedLocation = (latitude: number, longitude: number, label: string) => {
+    setUserLocation([latitude, longitude]);
+    const nearest = findNearestCity(latitude, longitude);
+    setExternalSource(nearest.city);
+    setGpsNotice(
+      `${label}: Active (${nearest.city} hub • ${latitude.toFixed(4)}° N, ${longitude.toFixed(4)}° E)`
+    );
+    setLocating(false);
+  };
+
+  // Trigger automatic device GPS detection without manual modals
+  const handleLocateMe = () => {
+    setLocating(true);
+    setGpsNotice("Acquiring real-time position with device GPS...");
+
+    if (typeof window === "undefined" || !navigator.geolocation) {
+      setGpsNotice("Geolocation is not supported by your browser.");
+      setLocating(false);
+      return;
+    }
+
+    let resolved = false;
+    let watchId: number | null = null;
+
+    const stopTracking = () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+    };
+
+    const handleSuccess = (pos: GeolocationPosition) => {
+      if (resolved) return;
+      resolved = true;
+      stopTracking();
+      const { latitude, longitude } = pos.coords;
+      applyDetectedLocation(latitude, longitude, "Device GPS");
+    };
+
+    const handleError = (err: GeolocationPositionError) => {
+      if (resolved) return;
+      // If initial getCurrentPosition fails or times out, try watchPosition with standard accuracy
+      if (watchId === null) {
+        watchId = navigator.geolocation.watchPosition(
+          handleSuccess,
+          (watchErr) => {
+            if (resolved) return;
+            resolved = true;
+            stopTracking();
+            let msg = "Could not acquire device GPS.";
+            if (watchErr.code === watchErr.PERMISSION_DENIED) {
+              msg = "Location permission blocked. Please allow location access in your browser address bar.";
+            } else if (watchErr.code === watchErr.TIMEOUT) {
+              msg = "GPS request timed out. Please click GPS to retry.";
+            } else if (watchErr.code === watchErr.POSITION_UNAVAILABLE) {
+              msg = "Device location unavailable. Please ensure device location/Wi-Fi is enabled.";
+            }
+            setGpsNotice(msg);
+            setLocating(false);
+          },
+          { enableHighAccuracy: false, timeout: 25000, maximumAge: 60000 }
+        );
+      }
+    };
+
+    // Attempt 1: High accuracy GPS with 15s timeout
+    navigator.geolocation.getCurrentPosition(
+      handleSuccess,
+      handleError,
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  };
+
+  // Start Live Turn-by-Turn GPS Navigation Mode
+  const handleStartNavigation = () => {
+    if (!displayedRouteData) return;
+
+    setIsNavigating(true);
+    setCurrentStepIndex(0);
+
+    // Starting point of the route at road view
+    const startingPoint: [number, number] =
+      displayedRouteData.geometry && displayedRouteData.geometry.length > 0
+        ? displayedRouteData.geometry[0]
+        : displayedRouteData.coordinates[0];
+
+    setActiveCarPosition(startingPoint);
+
+    // Initial vehicle heading oriented down the road
+    if (displayedRouteData.geometry && displayedRouteData.geometry.length > 1) {
+      const heading = computeHeading(
+        displayedRouteData.geometry[0],
+        displayedRouteData.geometry[1]
+      );
+      setCarHeading(heading);
+    } else if (
+      displayedRouteData.coordinates &&
+      displayedRouteData.coordinates.length > 1
+    ) {
+      const heading = computeHeading(
+        displayedRouteData.coordinates[0],
+        displayedRouteData.coordinates[1]
+      );
+      setCarHeading(heading);
+    }
+
+    const firstInstruction =
+      displayedRouteData.steps && displayedRouteData.steps.length > 0
+        ? displayedRouteData.steps[0].instruction
+        : `Head towards ${displayedRouteData.path[1] || displayedRouteData.path[0]}`;
+
+    speakInstruction(`Starting live navigation towards ${displayedRouteData.destination || "destination"}. ${firstInstruction}`);
+
+    // Real device GPS tracking via Geolocation watchPosition
+    if (navigator.geolocation) {
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          setActiveCarPosition([lat, lon]);
+          if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
+            setCarHeading(pos.coords.heading);
+          }
+        },
+        (err) => console.log("Live GPS tracking notice:", err),
+        { enableHighAccuracy: true, maximumAge: 2000 }
+      );
+    }
+  };
+
+  // Exit Navigation Mode
+  const handleExitNavigation = () => {
+    setIsNavigating(false);
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
+  // Next / Prev Step Controls
+  const handleNextStep = () => {
+    if (!displayedRouteData?.steps) return;
+    if (currentStepIndex < displayedRouteData.steps.length - 1) {
+      const nextIdx = currentStepIndex + 1;
+      setCurrentStepIndex(nextIdx);
+      speakInstruction(displayedRouteData.steps[nextIdx].instruction);
+
+      // Advance vehicle position and heading along road geometry
+      if (displayedRouteData.geometry && displayedRouteData.geometry.length > 1) {
+        const fraction = nextIdx / (displayedRouteData.steps.length - 1);
+        const geoIdx = Math.min(
+          Math.floor(fraction * (displayedRouteData.geometry.length - 1)),
+          displayedRouteData.geometry.length - 1
+        );
+        const coord = displayedRouteData.geometry[geoIdx];
+        setActiveCarPosition(coord);
+        if (geoIdx < displayedRouteData.geometry.length - 1) {
+          const heading = computeHeading(
+            coord,
+            displayedRouteData.geometry[geoIdx + 1]
+          );
+          setCarHeading(heading);
+        }
+      }
+    }
+  };
+
+  const handlePrevStep = () => {
+    if (!displayedRouteData?.steps) return;
+    if (currentStepIndex > 0) {
+      const prevIdx = currentStepIndex - 1;
+      setCurrentStepIndex(prevIdx);
+      speakInstruction(displayedRouteData.steps[prevIdx].instruction);
+
+      // Move vehicle position and heading back along road geometry
+      if (displayedRouteData.geometry && displayedRouteData.geometry.length > 1) {
+        const fraction = prevIdx / (displayedRouteData.steps.length - 1);
+        const geoIdx = Math.min(
+          Math.floor(fraction * (displayedRouteData.geometry.length - 1)),
+          displayedRouteData.geometry.length - 1
+        );
+        const coord = displayedRouteData.geometry[geoIdx];
+        setActiveCarPosition(coord);
+        if (geoIdx < displayedRouteData.geometry.length - 1) {
+          const heading = computeHeading(
+            coord,
+            displayedRouteData.geometry[geoIdx + 1]
+          );
+          setCarHeading(heading);
+        }
+      }
+    }
+  };
+
+  const handleToggleVoice = () => {
+    const nextVoice = !voiceEnabled;
+    setVoiceEnabled(nextVoice);
+    if (!nextVoice && typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
+  // Clean up GPS tracking on unmount
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   // Coordinate lookup for path waypoints
   const getCoordinatesForPath = (path: string[], fallbackCoords: [number, number][]): [number, number][] => {
@@ -63,6 +379,7 @@ export default function Home() {
     setOptimalRouteData(null);
     setDisplayedRouteData(null);
     setIsAlternateSelected(false);
+    setIsNavigating(false);
 
     try {
       const response = await fetch("/api/shortest-path", {
@@ -90,112 +407,188 @@ export default function Home() {
 
   const handleSelectAlternate = (alt: AlternateRouteDetail) => {
     if (!optimalRouteData) return;
-    const newCoords = getCoordinatesForPath(alt.path, optimalRouteData.coordinates);
+
+    const altCoords =
+      alt.coordinates && alt.coordinates.length > 0
+        ? alt.coordinates
+        : getCoordinatesForPath(alt.path, optimalRouteData.coordinates);
+
+    const altGeometry =
+      alt.geometry && alt.geometry.length > alt.path.length
+        ? alt.geometry
+        : undefined;
 
     setDisplayedRouteData({
       ...optimalRouteData,
       path: alt.path,
       distance: alt.distance,
       time: alt.time,
-      coordinates: newCoords,
-      geometry: newCoords, // reset geometry to alternate coordinates
+      coordinates: altCoords,
+      geometry: altGeometry,
       prediction_method: alt.method,
     });
     setIsAlternateSelected(true);
+    setIsNavigating(false);
   };
 
   const handleResetToOptimal = () => {
     if (!optimalRouteData) return;
     setDisplayedRouteData(optimalRouteData);
     setIsAlternateSelected(false);
+    setIsNavigating(false);
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-      {/* Header */}
-      <header className="bg-white shadow-lg border-b-4 border-primary-500">
-        <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center gap-4">
-            <div className="bg-gradient-to-br from-primary-500 to-primary-600 p-3 rounded-xl shadow-lg">
-              <Navigation className="w-8 h-8 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-black text-gray-900 flex items-center gap-2">
-                AI Navigation System
-              </h1>
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className={theme === "dark" ? "dark" : ""}>
+      <main className="h-screen w-screen flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors font-sans relative">
+        {/* Ambient background glow orbs for glassmorphism reflections */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 dark:bg-blue-600/15 rounded-full blur-3xl pointer-events-none -z-10" />
+        <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-indigo-500/10 dark:bg-indigo-600/15 rounded-full blur-3xl pointer-events-none -z-10" />
 
-      {/* Main Content */}
-      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Column 1 - Plan Your Route */}
-          <div className="lg:col-span-4 space-y-6">
-            <NavigationForm onSubmit={handleFindRoute} loading={loading} />
-
-            {error && (
-              <div className="bg-red-50 border-2 border-red-400 rounded-xl p-4 shadow-md text-red-900">
-                <p className="font-bold text-sm mb-1">Route Planning Notice</p>
-                <p className="text-sm font-medium">{error}</p>
+        {/* Top Floating Glass Header / Navbar - Hidden during live route navigation */}
+        {!isNavigating && (
+          <header className="h-16 px-4 sm:px-6 flex items-center justify-between z-30 transition-all flex-shrink-0 glass-panel border-b border-white/50 dark:border-white/10 shadow-sm animate-in fade-in duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25">
+                <Compass className="w-5 h-5" />
               </div>
-            )}
-          </div>
-
-          {/* Column 2 - Interactive Route Map */}
-          <div className="lg:col-span-8">
-            <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border-2 border-gray-200">
-              <div className="bg-gradient-to-r from-primary-600 to-primary-700 px-6 py-4 flex items-center justify-between">
-                <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                  Interactive Route Map
-                </h3>
-                {isAlternateSelected && (
-                  <span className="text-xs bg-amber-400 text-amber-950 font-bold px-2.5 py-1 rounded-full">
-                    Viewing Alternate Route
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-black text-lg tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">
+                    NavIndia
                   </span>
-                )}
-              </div>
-              <div className="h-[540px] relative">
-                <MapView routeData={displayedRouteData} loading={loading} />
+                  <span className="hidden sm:inline-block text-[10px] font-bold px-2.5 py-0.5 rounded-full glass-card text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-900/60">
+                    NHAI Highway Network
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Row 2 - Route Details (Full Width in One Row) */}
-          <div className="lg:col-span-12">
-            {displayedRouteData && optimalRouteData ? (
-              <RouteDetails
-                routeData={displayedRouteData}
-                onSelectAlternateRoute={handleSelectAlternate}
-                onResetToOptimal={handleResetToOptimal}
-                isAlternateSelected={isAlternateSelected}
-              />
-            ) : (
-              <div className="bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-xl p-6 border-2 border-primary-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <p className="text-xl font-bold text-gray-800">Route Details</p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Select an origin and destination above to compute the optimal path, compare alternatives, and see ML-estimated travel times.
-                  </p>
-                </div>
-                <span className="text-xs font-semibold px-4 py-2 rounded-full bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap self-start md:self-auto">
-                  Awaiting route selection
+            <div className="flex items-center gap-3">
+              {/* GPS live indicator badge - Click to detect device GPS */}
+              <button
+                type="button"
+                onClick={handleLocateMe}
+                disabled={locating}
+                className="hidden md:flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-full glass-card hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-white/60 dark:border-white/10 shadow-xs transition cursor-pointer"
+                title="Detect automatically using device GPS"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${locating
+                      ? "bg-amber-500 animate-ping"
+                      : userLocation
+                        ? "bg-blue-500 animate-pulse"
+                        : "bg-emerald-500"
+                    }`}
+                />
+                <span>
+                  {locating
+                    ? "Acquiring GPS..."
+                    : userLocation
+                      ? `📍 ${externalSource || "GPS Active"}`
+                      : "Detect Device GPS"}
                 </span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+              </button>
 
-      {/* Footer */}
-      <footer className="mt-16 py-8 bg-gray-900 text-white">
-        <div className="max-w-[1800px] mx-auto px-4 text-center">
-          <p className="text-base font-semibold">Made By Digar Singh</p>
-          <p className="text-sm text-gray-400 mt-2">Dijkstra Shortest-Path &bull; Random Forest Travel Time Regressor (R² = 0.9942, MAE = 0.63 hr)</p>
+              {/* Dark / Light Mode Switcher */}
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl glass-card hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition shadow-xs border border-white/60 dark:border-white/10"
+                title={`Switch to ${theme === "light" ? "Dark" : "Light"} mode`}
+              >
+                {theme === "light" ? (
+                  <>
+                    <Moon className="w-3.5 h-3.5 text-slate-700" />
+                    <span>Dark</span>
+                  </>
+                ) : (
+                  <>
+                    <Sun className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Light</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </header>
+        )}
+
+        {/* Main Application Canvas */}
+        <div className="flex-1 w-full h-full relative overflow-hidden">
+          {/* Full-Screen Map Canvas - Runs behind everything so glass can blur it! */}
+          <div className="absolute inset-0 z-0">
+            <MapView
+              routeData={displayedRouteData}
+              loading={loading}
+              theme={theme}
+              userLocation={userLocation}
+              onLocateMe={handleLocateMe}
+              locating={locating}
+              isNavigating={isNavigating}
+              activeCarPosition={activeCarPosition}
+              carHeading={carHeading}
+            />
+          </div>
+
+          {/* Left Floating Frosted Glass Card - Floats directly on top of the interactive map */}
+          {!isNavigating && (
+            <aside className="absolute top-4 left-4 bottom-4 w-[calc(100%-2rem)] sm:w-[430px] max-w-full z-20 flex flex-col glass-panel rounded-3xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.35)] overflow-y-auto no-scrollbar transition-all border border-white/60 dark:border-white/10">
+              {/* Routing Inputs */}
+              <NavigationForm
+                onSubmit={handleFindRoute}
+                loading={loading}
+                externalSource={externalSource}
+                externalGpsNotice={gpsNotice}
+                locating={locating}
+                onLocateMe={handleLocateMe}
+              />
+
+              {/* Error Notice */}
+              {error && (
+                <div className="m-3 p-3.5 rounded-2xl glass-card border border-red-300/80 dark:border-red-900/60 text-red-900 dark:text-red-200 text-xs shadow-sm">
+                  <p className="font-bold mb-1">Route Planning Notice</p>
+                  <p className="font-medium">{error}</p>
+                </div>
+              )}
+
+              {/* Active Route Details */}
+              {displayedRouteData && optimalRouteData && (
+                <div className="flex-1">
+                  <RouteDetails
+                    routeData={displayedRouteData}
+                    onSelectAlternateRoute={handleSelectAlternate}
+                    onResetToOptimal={handleResetToOptimal}
+                    isAlternateSelected={isAlternateSelected}
+                    onStartNavigation={handleStartNavigation}
+                  />
+                </div>
+              )}
+            </aside>
+          )}
+
+          {/* Google Maps Turn-by-Turn Navigation HUD Overlay */}
+          {isNavigating && displayedRouteData && displayedRouteData.steps && (
+            <NavigationHUD
+              steps={displayedRouteData.steps}
+              currentStepIndex={currentStepIndex}
+              totalDistanceKm={displayedRouteData.distance}
+              remainingDistanceKm={
+                displayedRouteData.steps
+                  .slice(currentStepIndex)
+                  .reduce((sum, s) => sum + s.distance_km, 0) || displayedRouteData.distance
+              }
+              estimatedTime={displayedRouteData.time}
+              voiceEnabled={voiceEnabled}
+              sourceCity={displayedRouteData.path[0]}
+              destinationCity={displayedRouteData.path[displayedRouteData.path.length - 1]}
+              onToggleVoice={handleToggleVoice}
+              onNextStep={handleNextStep}
+              onPrevStep={handlePrevStep}
+              onExitNavigation={handleExitNavigation}
+            />
+          )}
         </div>
-      </footer>
-    </main>
+      </main>
+    </div>
   );
 }

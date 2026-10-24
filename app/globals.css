@@ -4,26 +4,37 @@
 
 :root {
   --foreground-rgb: 15, 23, 42;
-  --background-start-rgb: 241, 245, 249;
-  --background-end-rgb: 255, 255, 255;
+  --background-start-rgb: 245, 247, 250;
+  --background-end-rgb: 238, 242, 246;
 }
 
+.dark {
+  --foreground-rgb: 248, 250, 252;
+  --background-start-rgb: 10, 15, 29;
+  --background-end-rgb: 3, 7, 18;
+}
+
+html,
 body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden !important;
+  margin: 0;
+  padding: 0;
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background: radial-gradient(circle at 15% 15%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 85% 85%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
+    linear-gradient(to bottom, rgb(var(--background-start-rgb)), rgb(var(--background-end-rgb)));
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
     "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
-/* Leaflet CSS fixes */
+/* Leaflet Container */
 .leaflet-container {
   height: 100%;
   width: 100%;
@@ -31,36 +42,354 @@ body {
   border-radius: 0;
 }
 
-.leaflet-popup-content-wrapper {
-  border-radius: 12px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-  font-weight: 600;
+/* World-Class Physical Glassmorphism Design System */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 
+    0 24px 48px -12px rgba(15, 23, 42, 0.18),
+    0 4px 12px rgba(15, 23, 42, 0.05),
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.04);
 }
 
-.leaflet-popup-content {
-  font-size: 14px;
+.dark .glass-panel {
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 
+    0 28px 64px -12px rgba(0, 0, 0, 0.75),
+    0 4px 16px rgba(0, 0, 0, 0.4),
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 
+    0 8px 24px -4px rgba(15, 23, 42, 0.08),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.dark .glass-card {
+  background: rgba(30, 41, 59, 0.48);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 
+    0 12px 28px -4px rgba(0, 0, 0, 0.45),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.04);
+}
+
+.dark .glass-input {
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* Map Tile Dark Filter - Applied ONLY to default Streets map in dark mode */
+.dark .leaflet-tile-pane.filter-streets {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+}
+
+/* Leaflet Popups Glassmorphic */
+.leaflet-popup-content-wrapper {
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
   font-weight: 600;
   color: #1e293b;
 }
 
-.leaflet-popup-tip {
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.2);
+.dark .leaflet-popup-content-wrapper {
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #f1f5f9;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
+.dark .leaflet-popup-tip {
+  background: rgba(15, 23, 42, 0.92);
 }
 
+.leaflet-popup-content {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #1e293b;
+}
+
+.dark .leaflet-popup-content {
+  color: #f1f5f9;
+}
+
+/* NHAI Toll Plaza Custom Marker Pin */
+.nhai-toll-icon-wrapper {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.nhai-toll-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+  border: 2px solid #ffffff;
+  box-shadow: 0 4px 10px rgba(217, 119, 6, 0.45), 0 2px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+  user-select: none;
+}
+
+.nhai-toll-badge:hover {
+  transform: scale(1.22);
+  box-shadow: 0 6px 16px rgba(217, 119, 6, 0.6);
+}
+
+/* Real-Time Location Marker */
+.gmaps-location-marker {
+  position: relative;
+  width: 24px;
+  height: 24px;
+}
+
+.gmaps-location-pulse {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(66, 133, 244, 0.45);
+  animation: gmaps-radar 2s infinite cubic-bezier(0.2, 0.6, 0.35, 1);
+  pointer-events: none;
+}
+
+.gmaps-location-dot {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: #1a73e8;
+  border: 3px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes gmaps-radar {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.95;
+  }
+
+  70% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+/* Turn-by-Turn Vehicle Cursor (Google Maps Driving Mode Style) */
+.nav-car-icon-wrapper {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.nav-car-rotator {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+}
+
+/* Forward heading beam spotlight */
+.nav-vehicle-beam {
+  position: absolute;
+  bottom: 50%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 20px solid transparent;
+  border-right: 20px solid transparent;
+  border-top: 52px solid rgba(37, 99, 235, 0.32);
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+.nav-vehicle-indicator {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45), 0 0 0 4px rgba(37, 99, 235, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #1d4ed8;
+  z-index: 2;
+  transition: transform 0.2s ease;
+}
+
+.nav-vehicle-chevron {
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 18px solid #1d4ed8;
+  margin-top: -4px;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
+}
+
+
+/* Clean Invisible Scrollbars - Full Smooth Scrolling Without Visible Scrollbars */
+*,
+*::before,
+*::after,
+html,
+body {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+*::-webkit-scrollbar,
+::-webkit-scrollbar,
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+  -webkit-appearance: none !important;
+}
+
+*::-webkit-scrollbar-track,
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  display: none !important;
+  background: transparent !important;
 }
 
+*::-webkit-scrollbar-thumb,
 ::-webkit-scrollbar-thumb {
-  background: #0ea5e9;
-  border-radius: 5px;
+  display: none !important;
+  background: transparent !important;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #0284c7;
+.no-scrollbar {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+/* Highway Amenities: Fuel Stations, CNG Gas Stations & EV Fast Chargers */
+.amenity-icon-wrapper {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.fuel-station-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+  font-size: 11px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.45);
+  cursor: pointer;
+  transition: transform 0.18s ease;
+  user-select: none;
+}
+
+.fuel-station-badge:hover {
+  transform: scale(1.22);
+}
+
+.cng-station-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 900;
+  border: 2px solid #ffffff;
+  box-shadow: 0 3px 8px rgba(22, 163, 74, 0.45);
+  cursor: pointer;
+  transition: transform 0.18s ease;
+  user-select: none;
+}
+
+.cng-station-badge:hover {
+  transform: scale(1.22);
+}
+
+.ev-station-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  color: #ffffff;
+  font-size: 11px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 3px 8px rgba(139, 92, 246, 0.45);
+  cursor: pointer;
+  transition: transform 0.18s ease;
+  user-select: none;
+}
+
+.ev-station-badge:hover {
+  transform: scale(1.22);
 }

@@ -1,32 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-
-export interface AlternateRouteDetail {
-  path: string[];
-  distance: number;
-  time: string;
-  hours: number;
-  method: string;
-}
+import { computeDijkstraRoute } from "@/lib/dijkstra";
 
 export interface RouteRequest {
   source: string;
   destination: string;
-}
-
-export interface RouteResponse {
-  path: string[];
-  distance: number;
-  time: string;
-  alternate_routes?: string[][];
-  alternate_route_details?: AlternateRouteDetail[];
-  coordinates?: [number, number][];
-  geometry?: [number, number][];
-  prediction_method?: string;
-  predicted_hours?: number;
-  ml_estimated_time?: string;
-  osrm_estimated_time?: string | null;
-  source?: string;
-  destination?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -50,7 +27,6 @@ export async function POST(request: NextRequest) {
 
     const { source, destination } = body;
 
-    // Strict input validation
     if (typeof source !== "string" || typeof destination !== "string") {
       return NextResponse.json(
         { error: "Source and destination must be non-empty strings" },
@@ -75,47 +51,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call Python Flask API
-    const flaskUrl = process.env.FLASK_API_URL || "http://localhost:5000";
+    // 1. Try Python Flask backend first if available
+    const flaskUrl = process.env.FLASK_API_URL || "http://127.0.0.1:5000";
 
-    let response: Response;
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-      response = await fetch(`${flaskUrl}/predict`, {
+      const flaskRes = await fetch(`${flaskUrl}/predict`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          source: trimmedSource,
-          destination: trimmedDestination,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: trimmedSource, destination: trimmedDestination }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
-    } catch (fetchError) {
-      console.error(`Flask API unreachable at ${flaskUrl}:`, fetchError);
-      return NextResponse.json(
-        {
-          error: `Python routing service is unreachable at ${flaskUrl}. Please verify the Flask backend is running on port 5000.`,
-          service_unavailable: true,
-        },
-        { status: 503 }
-      );
+
+      if (flaskRes.ok) {
+        const data = await flaskRes.json();
+        return NextResponse.json(data, { status: 200 });
+      }
+    } catch {
+      // Python backend unreachable / timed out -> fallback seamlessly to built-in Next.js Dijkstra engine
     }
 
-    const data = await response.json();
-
-    if (!response.ok) {
+    // 2. High-Performance Zero-Downtime Fallback
+    // Directly computes the exact Dijkstra shortest highway route with OSRM curves and turn-by-turn guidance
+    try {
+      const fallbackRoute = await computeDijkstraRoute(trimmedSource, trimmedDestination);
+      return NextResponse.json(fallbackRoute, { status: 200 });
+    } catch (routeError: any) {
       return NextResponse.json(
-        { error: data.error || "Failed to find route" },
-        { status: response.status }
+        { error: routeError?.message || "Failed to find highway route" },
+        { status: 404 }
       );
     }
-
-    return NextResponse.json(data as RouteResponse, { status: 200 });
   } catch (error) {
     console.error("API Error in /api/shortest-path:", error);
     return NextResponse.json(
