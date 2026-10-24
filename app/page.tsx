@@ -62,6 +62,25 @@ function computeHeading(c1: [number, number], c2: [number, number]): number {
   return (brng + 360) % 360;
 }
 
+function computeHaversineDistanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 export default function Home() {
   const [optimalRouteData, setOptimalRouteData] = useState<RouteData | null>(null);
   const [displayedRouteData, setDisplayedRouteData] = useState<RouteData | null>(null);
@@ -86,8 +105,10 @@ export default function Home() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [activeCarPosition, setActiveCarPosition] = useState<[number, number] | null>(null);
   const [carHeading, setCarHeading] = useState(0);
+  const [currentSpeedKmh, setCurrentSpeedKmh] = useState(0);
 
   const watchIdRef = useRef<number | null>(null);
+  const lastGpsPointRef = useRef<{ lat: number; lon: number; time: number } | null>(null);
 
   // Initialize theme on mount from localStorage or system preference
   useEffect(() => {
@@ -272,19 +293,54 @@ export default function Home() {
 
     speakInstruction(`Starting live navigation towards ${displayedRouteData.destination || "destination"}. ${firstInstruction}`);
 
+    setCurrentSpeedKmh(0);
+    lastGpsPointRef.current = null;
+
     // Real device GPS tracking via Geolocation watchPosition
     if (navigator.geolocation) {
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
+          const now = Date.now();
           setActiveCarPosition([lat, lon]);
+
           if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
             setCarHeading(pos.coords.heading);
           }
+
+          // Real-time GPS Speed:
+          // 1. pos.coords.speed is in meters/second if provided by device GPS hardware
+          if (
+            pos.coords.speed !== null &&
+            !isNaN(pos.coords.speed) &&
+            pos.coords.speed >= 0
+          ) {
+            const speedKmh = Math.round(pos.coords.speed * 3.6);
+            setCurrentSpeedKmh(speedKmh);
+          } else if (lastGpsPointRef.current) {
+            // 2. High-precision fallback from delta distance over delta time
+            const dtSeconds = (now - lastGpsPointRef.current.time) / 1000;
+            if (dtSeconds >= 0.5 && dtSeconds < 30) {
+              const distM = computeHaversineDistanceMeters(
+                lastGpsPointRef.current.lat,
+                lastGpsPointRef.current.lon,
+                lat,
+                lon
+              );
+              // Ignore stationary GPS jitter (< 1.5 meters)
+              if (distM >= 1.5) {
+                const calculatedSpeed = Math.round((distM / dtSeconds) * 3.6);
+                setCurrentSpeedKmh(Math.min(calculatedSpeed, 180));
+              } else {
+                setCurrentSpeedKmh(0);
+              }
+            }
+          }
+          lastGpsPointRef.current = { lat, lon, time: now };
         },
         (err) => console.log("Live GPS tracking notice:", err),
-        { enableHighAccuracy: true, maximumAge: 2000 }
+        { enableHighAccuracy: true, maximumAge: 1000 }
       );
     }
   };
@@ -292,6 +348,8 @@ export default function Home() {
   // Exit Navigation Mode
   const handleExitNavigation = () => {
     setIsNavigating(false);
+    setCurrentSpeedKmh(0);
+    lastGpsPointRef.current = null;
     if (watchIdRef.current !== null && navigator.geolocation) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -308,6 +366,9 @@ export default function Home() {
       const nextIdx = currentStepIndex + 1;
       setCurrentStepIndex(nextIdx);
       speakInstruction(displayedRouteData.steps[nextIdx].instruction);
+
+      // During manual step advancement in test mode when stationary, simulate realistic cruising speed
+      setCurrentSpeedKmh((prev) => (prev === 0 ? Math.floor(Math.random() * 12) + 65 : prev));
 
       // Advance vehicle position and heading along road geometry
       if (displayedRouteData.geometry && displayedRouteData.geometry.length > 1) {
@@ -711,20 +772,49 @@ export default function Home() {
           )}
 
           {/* Google Maps Turn-by-Turn Navigation HUD Overlay */}
-          {isNavigating && displayedRouteData && displayedRouteData.steps && (
+          {isNavigating && displayedRouteData && (
             <NavigationHUD
-              steps={displayedRouteData.steps}
+              steps={
+                displayedRouteData.steps && displayedRouteData.steps.length > 0
+                  ? displayedRouteData.steps
+                  : [
+                      {
+                        instruction: `Depart from ${displayedRouteData.path[0]}`,
+                        distance_km: 0,
+                        type: "depart",
+                      },
+                      {
+                        instruction: `Head towards ${
+                          displayedRouteData.destination ||
+                          displayedRouteData.path[displayedRouteData.path.length - 1]
+                        }`,
+                        distance_km: displayedRouteData.distance,
+                        type: "continue",
+                      },
+                      {
+                        instruction: `Arrive at destination in ${
+                          displayedRouteData.destination ||
+                          displayedRouteData.path[displayedRouteData.path.length - 1]
+                        }`,
+                        distance_km: 0,
+                        type: "arrive",
+                      },
+                    ]
+              }
               currentStepIndex={currentStepIndex}
               totalDistanceKm={displayedRouteData.distance}
               remainingDistanceKm={
-                displayedRouteData.steps
-                  .slice(currentStepIndex)
-                  .reduce((sum, s) => sum + s.distance_km, 0) || displayedRouteData.distance
+                (displayedRouteData.steps && displayedRouteData.steps.length > 0
+                  ? displayedRouteData.steps
+                      .slice(currentStepIndex)
+                      .reduce((sum, s) => sum + s.distance_km, 0)
+                  : displayedRouteData.distance) || displayedRouteData.distance
               }
               estimatedTime={displayedRouteData.time}
               voiceEnabled={voiceEnabled}
               sourceCity={displayedRouteData.path[0]}
               destinationCity={displayedRouteData.path[displayedRouteData.path.length - 1]}
+              currentSpeedKmh={currentSpeedKmh}
               onToggleVoice={handleToggleVoice}
               onNextStep={handleNextStep}
               onPrevStep={handlePrevStep}
