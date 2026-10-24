@@ -133,7 +133,7 @@ export default function Home() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Column 1 - Plan Your Route */}
-          <div className="lg:col-span-3 space-y-6">
+          <div className="lg:col-span-4 space-y-6">
             <NavigationForm onSubmit={handleFindRoute} loading={loading} />
 
             {error && (
@@ -145,7 +145,7 @@ export default function Home() {
           </div>
 
           {/* Column 2 - Interactive Route Map */}
-          <div className="lg:col-span-6">
+          <div className="lg:col-span-8">
             <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border-2 border-gray-200">
               <div className="bg-gradient-to-r from-primary-600 to-primary-700 px-6 py-4 flex items-center justify-between">
                 <h3 className="text-xl font-bold text-white flex items-center gap-2">
@@ -157,14 +157,14 @@ export default function Home() {
                   </span>
                 )}
               </div>
-              <div className="h-[650px] relative">
+              <div className="h-[540px] relative">
                 <MapView routeData={displayedRouteData} loading={loading} />
               </div>
             </div>
           </div>
 
-          {/* Column 3 - Route Details */}
-          <div className="lg:col-span-3">
+          {/* Row 2 - Route Details (Full Width in One Row) */}
+          <div className="lg:col-span-12">
             {displayedRouteData && optimalRouteData ? (
               <RouteDetails
                 routeData={displayedRouteData}
@@ -173,11 +173,16 @@ export default function Home() {
                 isAlternateSelected={isAlternateSelected}
               />
             ) : (
-              <div className="bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-2xl p-6 border-2 border-primary-200 text-center">
-                <p className="text-lg font-bold text-gray-800">Route Details</p>
-                <p className="text-sm text-gray-600 mt-2">
-                  Select an origin and destination to compute the optimal path, compare alternatives, and see ML-estimated travel times.
-                </p>
+              <div className="bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-xl p-6 border-2 border-primary-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <p className="text-xl font-bold text-gray-800">Route Details</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Select an origin and destination above to compute the optimal path, compare alternatives, and see ML-estimated travel times.
+                  </p>
+                </div>
+                <span className="text-xs font-semibold px-4 py-2 rounded-full bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap self-start md:self-auto">
+                  Awaiting route selection
+                </span>
               </div>
             )}
           </div>

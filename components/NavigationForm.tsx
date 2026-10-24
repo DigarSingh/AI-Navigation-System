@@ -123,7 +123,7 @@ export default function NavigationForm({ onSubmit, loading }: NavigationFormProp
           ) : (
             <>
               <Navigation className="w-6 h-6" />
-              Find Best Route 🚀
+              Find Best Route
             </>
           )}
         </button>
