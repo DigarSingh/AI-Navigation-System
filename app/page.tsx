@@ -133,20 +133,6 @@ export default function Home() {
 
       {/* Main Content */}
       <div className="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Info Banner */}
-        <div className="mb-6 bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50 border-2 border-green-400 rounded-xl p-5 shadow-lg">
-          <div className="flex items-center justify-center gap-3 text-center">
-            <span className="text-4xl">🚀</span>
-            <div>
-              <p className="text-lg font-black text-green-900">
-                Production-Ready AI Navigation System
-              </p>
-              <p className="text-sm font-bold text-green-800 mt-1">
-                105 Indian Cities &bull; 161 Real Highway Connections &bull; Random Forest ML Model (99.42% R²)
-              </p>
-            </div>
-          </div>
-        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Column 1 - Plan Your Route */}
