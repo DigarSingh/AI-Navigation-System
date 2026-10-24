@@ -178,7 +178,7 @@ export default function MapView({ routeData, loading }: MapViewProps) {
       }).addTo(map);
 
       polyline.bindPopup(
-        `<b>📊 Route Information</b><br>` +
+        `<b>Route Information</b><br>` +
         `Distance: ${routeData.distance.toFixed(2)} km<br>` +
         `Est. Time: ${routeData.time}<br>` +
         `Cities: ${routeData.path.length}`

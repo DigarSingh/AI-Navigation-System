@@ -123,9 +123,6 @@ export default function Home() {
               <h1 className="text-3xl font-black text-gray-900 flex items-center gap-2">
                 AI Navigation System
               </h1>
-              <p className="text-xs text-gray-500 font-medium">
-                Dijkstra Shortest-Path &bull; Random Forest Travel Time Prediction &bull; Interactive OpenStreetMap
-              </p>
             </div>
           </div>
         </div>
@@ -152,7 +149,7 @@ export default function Home() {
             <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border-2 border-gray-200">
               <div className="bg-gradient-to-r from-primary-600 to-primary-700 px-6 py-4 flex items-center justify-between">
                 <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                  🗺️ Interactive Route Map
+                  Interactive Route Map
                 </h3>
                 {isAlternateSelected && (
                   <span className="text-xs bg-amber-400 text-amber-950 font-bold px-2.5 py-1 rounded-full">
@@ -177,7 +174,6 @@ export default function Home() {
               />
             ) : (
               <div className="bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-2xl p-6 border-2 border-primary-200 text-center">
-                <div className="text-5xl mb-3">📊</div>
                 <p className="text-lg font-bold text-gray-800">Route Details</p>
                 <p className="text-sm text-gray-600 mt-2">
                   Select an origin and destination to compute the optimal path, compare alternatives, and see ML-estimated travel times.
@@ -191,7 +187,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="mt-16 py-8 bg-gray-900 text-white">
         <div className="max-w-[1800px] mx-auto px-4 text-center">
-          <p className="text-base font-semibold">Built with Next.js 14, Python Flask, NetworkX & Machine Learning</p>
+          <p className="text-base font-semibold">Made By Digar Singh</p>
           <p className="text-sm text-gray-400 mt-2">Dijkstra Shortest-Path &bull; Random Forest Travel Time Regressor (R² = 0.9942, MAE = 0.63 hr)</p>
         </div>
       </footer>

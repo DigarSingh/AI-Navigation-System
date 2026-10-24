@@ -23,7 +23,7 @@ export default function RouteDetails({
     <div className="bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-2xl p-6 border-2 border-primary-200">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-black text-gray-900 flex items-center gap-3">
-          📊 Route Details
+          Route Details
         </h2>
         {isAlternateSelected ? (
           <span className="text-xs font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
@@ -53,7 +53,7 @@ export default function RouteDetails({
             <TrendingUp className="w-6 h-6 text-primary-600" />
             <div>
               <p className="text-sm font-bold text-gray-600">Distance</p>
-              <p className="text-xs text-gray-500">🛣️ Real road distance via highways</p>
+              <p className="text-xs text-gray-500">Real road distance via highways</p>
             </div>
           </div>
           <p className="text-2xl font-black text-gray-900">{routeData.distance.toFixed(2)} km</p>
@@ -85,7 +85,7 @@ export default function RouteDetails({
       {/* Route Path */}
       <div className="mb-5 p-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl border border-gray-300">
         <p className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-          🛣️ Step-by-Step Waypoints ({routeData.path.length} cities):
+          Step-by-Step Waypoints ({routeData.path.length} cities):
         </p>
         <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
           {routeData.path.map((city, index) => (
@@ -116,7 +116,7 @@ export default function RouteDetails({
       {/* Alternate Routes Comparison */}
       <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-300">
         <p className="text-sm font-bold text-amber-900 mb-2 flex items-center gap-2">
-          🔀 Alternative Routes Comparison:
+          Alternative Routes Comparison:
         </p>
 
         {hasAlternates ? (
