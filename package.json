@@ -1,0 +1,36 @@
+{
+  "name": "ai-navigation-system",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "flask": "cd python-backend && python app.py",
+    "flask:venv": "cd python-backend && .\\venv312\\python.exe app.py",
+    "test:backend": "cd python-backend && .\\venv312\\Scripts\\pytest.exe -v tests/test_navigation.py"
+  },
+  "dependencies": {
+    "next": "14.2.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "leaflet": "^1.9.4",
+    "react-leaflet": "^4.2.1",
+    "axios": "^1.6.8",
+    "lucide-react": "^0.378.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/leaflet": "^1.9.11",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "typescript": "^5",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3"
+  }
+}
