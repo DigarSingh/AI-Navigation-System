@@ -13,22 +13,37 @@ An intelligent route planning application built with **Next.js 14**, **Python Fl
 
 ---
 
+## User Interface
+
+### 🛣️ Highway Route Planning & Corridor Overview
+Full route planning across 105 Indian cities and 161 National Highway corridors featuring NHAI FASTag toll plaza calculations, vehicle fuel/EV cost estimates, amenities, and alternative routes.
+
+![NavIndia Route Planning UI](UI-img/navindia-route-planning.png)
+
+### 🧭 Live Turn-by-Turn GPS Navigation Mode
+Turn-by-turn guidance with Google Maps road-level zoom (Zoom 17), vehicle heading orientation, real-time GPS speedometer, voice guidance, and mobile-friendly HUD.
+
+![NavIndia Live Turn-by-Turn Navigation UI](UI-img/navindia-live-turn-by-turn-navigation.png)
+
+---
+
 ## Table of Contents
 
-1. [Features](#features)
-2. [Architecture](#architecture)
-3. [Technology Stack](#technology-stack)
-4. [Prerequisites](#prerequisites)
-5. [Installation & Setup](#installation--setup)
-6. [Running the Application](#running-the-application)
-7. [Environment Variables](#environment-variables)
-8. [API Documentation](#api-documentation)
-9. [Machine Learning Model & Evaluation](#machine-learning-model--evaluation)
-10. [Road Network & Caching](#road-network--caching)
-11. [Testing Strategy](#testing-strategy)
-12. [Troubleshooting Guide](#troubleshooting-guide)
-13. [Current Limitations](#current-limitations)
-14. [Production Deployment](#production-deployment)
+1. [User Interface](#user-interface)
+2. [Features](#features)
+3. [Architecture](#architecture)
+4. [Technology Stack](#technology-stack)
+5. [Prerequisites](#prerequisites)
+6. [Installation & Setup](#installation--setup)
+7. [Running the Application](#running-the-application)
+8. [Environment Variables](#environment-variables)
+9. [API Documentation](#api-documentation)
+10. [Machine Learning Model & Evaluation](#machine-learning-model--evaluation)
+11. [Road Network & Caching](#road-network--caching)
+12. [Testing Strategy](#testing-strategy)
+13. [Troubleshooting Guide](#troubleshooting-guide)
+14. [Current Limitations](#current-limitations)
+15. [Production Deployment](#production-deployment)
 
 ---
 
@@ -36,9 +51,13 @@ An intelligent route planning application built with **Next.js 14**, **Python Fl
 
 - **Optimal Shortest Path Calculation**: Uses Dijkstra's algorithm implemented in NetworkX over a verified 105-city, 161-highway road network graph weighted by real driving distances.
 - **Random Forest Travel Time Prediction**: Machine learning regression model estimating travel time based on distance, highway classification, traffic level, and time of day.
+- **Live Turn-by-Turn GPS Navigation**: Google Maps style road-level view (Zoom 17), dynamic vehicle orientation along the road, and real-time device GPS position tracking.
+- **Real-Time GPS Speedometer**: Digital speed tracking in km/h directly from device GPS with Doppler and delta-distance fallbacks.
+- **Mobile-Friendly Bottom Drawer Layout**: Fully responsive mobile UI with collapsible route summary card, details drawer, and view toggle.
 - **Alternative Route Suggestions & Comparison**: Discovers genuinely distinct alternative paths, calculates their distances and travel times, and allows one-click switching directly on the map.
-- **Interactive Leaflet Map**: Interactive OpenStreetMap visualization with start/via/destination markers, auto-fitting bounds, real road polyline geometry, and a live map legend.
-- **Quick City Select**: Interactive search and quick-select buttons for 20+ prominent Indian transit hubs and tourist destinations.
+- **NHAI Toll Plazas & Highway Amenities**: Interactive map markers for FASTag toll plazas, fuel stations, CNG gas pumps, and EV fast chargers with one-click toggles.
+- **Interactive Leaflet Map**: Interactive OpenStreetMap visualization with start/via/destination markers, auto-fitting bounds, real road polyline geometry, and live map legend.
+- **Doorstep GPS Origin & Quick Select**: Real-time GPS location detection starting navigation directly from the user's exact coordinates.
 - **Transparent Fallback & Offline Resilience**: When external routing services (OSRM) are unavailable, the system transparently falls back to local road graph distances and local ML predictions.
 - **Comprehensive Error Handling**: Validates request payloads, same-city selections, unknown locations, and network disconnections gracefully with user-friendly notices.
 
