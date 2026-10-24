@@ -4,6 +4,7 @@ import { computeDijkstraRoute } from "@/lib/dijkstra";
 export interface RouteRequest {
   source: string;
   destination: string;
+  userCoord?: [number, number];
 }
 
 export async function POST(request: NextRequest) {
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { source, destination } = body;
+    const { source, destination, userCoord } = body;
 
     if (typeof source !== "string" || typeof destination !== "string") {
       return NextResponse.json(
@@ -61,7 +62,11 @@ export async function POST(request: NextRequest) {
       const flaskRes = await fetch(`${flaskUrl}/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: trimmedSource, destination: trimmedDestination }),
+        body: JSON.stringify({
+          source: trimmedSource,
+          destination: trimmedDestination,
+          user_coord: userCoord,
+        }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -77,7 +82,7 @@ export async function POST(request: NextRequest) {
     // 2. High-Performance Zero-Downtime Fallback
     // Directly computes the exact Dijkstra shortest highway route with OSRM curves and turn-by-turn guidance
     try {
-      const fallbackRoute = await computeDijkstraRoute(trimmedSource, trimmedDestination);
+      const fallbackRoute = await computeDijkstraRoute(trimmedSource, trimmedDestination, userCoord);
       return NextResponse.json(fallbackRoute, { status: 200 });
     } catch (routeError: any) {
       return NextResponse.json(

@@ -277,3 +277,53 @@ def test_cors_headers(client):
     res = client.get("/health", headers={"Origin": "http://localhost:3000"})
     assert res.status_code == 200
     assert res.headers.get("Access-Control-Allow-Origin") == "*" or "localhost" in res.headers.get("Access-Control-Allow-Origin", "")
+
+
+# ============================================================================
+# 8. Extended Edge Cases & Quality Assurance
+# ============================================================================
+
+def test_ml_extrapolation_extreme_distance():
+    """Verify that extreme distances (>1500 km) extrapolate properly and yield realistic speeds."""
+    res = app.calculate_travel_time(3500.0)
+    assert res["method"] == "ml_random_forest"
+    assert res["hours"] > 35.0  # Must be > 35 hours for 3500 km (realistic highway driving)
+    effective_speed = 3500.0 / res["hours"]
+    assert 55.0 <= effective_speed <= 85.0  # Highway speed must be realistic (55-85 km/h)
+
+
+def test_edge_weights_positive():
+    """Verify all edge lengths in the road network are finite and strictly positive."""
+    for u, v, data in app.road_network.edges(data=True):
+        assert "length" in data, f"Edge ({u}, {v}) missing length"
+        assert isinstance(data["length"], (int, float))
+        assert data["length"] > 0, f"Edge ({u}, {v}) has non-positive length: {data['length']}"
+
+
+def test_deterministic_disconnected_dijkstra():
+    """Verify Dijkstra correctly flags unreachable paths in a disconnected graph fixture."""
+    g = nx.Graph()
+    g.add_node("X", lat=10.0, lon=70.0)
+    g.add_node("Y", lat=11.0, lon=71.0)
+    g.add_node("Z", lat=12.0, lon=72.0)
+    g.add_edge("X", "Y", length=50)
+    # Z is isolated
+    with pytest.raises(nx.NetworkXNoPath):
+        nx.shortest_path(g, "X", "Z", weight="length")
+
+
+def test_predict_with_gps_user_coord(client):
+    """Verify routing starting directly from user's GPS current location."""
+    res = client.post("/predict", json={
+        "source": "Your Location",
+        "destination": "Delhi",
+        "user_coord": [30.3255, 78.0412]  # Dehradun area coordinates
+    })
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["path"][0] == "Your Location"
+    assert data["coordinates"][0] == [30.3255, 78.0412]
+    assert data["path"][-1] == "Delhi"
+    assert data["distance"] > 200
+
+

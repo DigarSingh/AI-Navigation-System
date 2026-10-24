@@ -78,9 +78,9 @@ export default function NavigationForm({
 
           {/* Source Input */}
           <div className="relative flex items-center">
-            <div className="absolute left-3.5 flex items-center justify-center z-10">
-              <div className="w-3.5 h-3.5 rounded-full border-2 border-emerald-500 bg-white dark:bg-slate-900 flex items-center justify-center shadow-sm">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            <div className="absolute left-3.5 flex items-center justify-center z-10 pointer-events-none">
+              <div className={`w-3.5 h-3.5 rounded-full border-2 ${source === "Your Location" ? "border-blue-600 bg-blue-100 dark:bg-blue-900/60" : "border-emerald-500 bg-white dark:bg-slate-900"} flex items-center justify-center shadow-sm`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${source === "Your Location" ? "bg-blue-600 animate-pulse" : "bg-emerald-500"}`} />
               </div>
             </div>
 
@@ -90,21 +90,21 @@ export default function NavigationForm({
               onChange={(e) => setSource(e.target.value)}
               onFocus={() => setActiveField("source")}
               onBlur={() => setActiveField(null)}
-              placeholder="Choose starting city..."
-              className="w-full pl-10 pr-24 py-2.5 text-sm font-semibold rounded-xl glass-input text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition shadow-sm"
+              placeholder="Starting city or GPS location..."
+              className="w-full pl-10 pr-28 py-3 sm:py-2.5 text-base sm:text-sm font-semibold rounded-xl glass-input text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition shadow-sm"
               disabled={loading}
               required
             />
 
-            <div className="absolute right-2.5 flex items-center gap-1">
+            <div className="absolute right-2 flex items-center gap-1">
               {source && (
                 <button
                   type="button"
                   onClick={() => setSource("")}
-                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                  className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition touch-manipulation"
                   title="Clear origin"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </button>
               )}
               {onLocateMe && (
@@ -112,13 +112,17 @@ export default function NavigationForm({
                   type="button"
                   onClick={onLocateMe}
                   disabled={loading || locating}
-                  className="px-2.5 py-1 rounded-lg glass-card hover:bg-blue-50 dark:hover:bg-blue-950/70 text-blue-600 dark:text-blue-400 text-xs font-bold flex items-center gap-1 transition border border-blue-200/80 dark:border-blue-900/60 shadow-xs"
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition border shadow-xs active:scale-95 touch-manipulation ${
+                    source === "Your Location"
+                      ? "bg-blue-600 text-white border-blue-600 shadow-blue-500/25"
+                      : "glass-card hover:bg-blue-50 dark:hover:bg-blue-950/70 text-blue-600 dark:text-blue-400 border-blue-200/80 dark:border-blue-900/60"
+                  }`}
                   title="Use current GPS location"
                 >
                   {locating ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <LocateFixed className="w-3 h-3" />
+                    <LocateFixed className="w-3.5 h-3.5" />
                   )}
                   <span>GPS</span>
                 </button>
@@ -132,7 +136,7 @@ export default function NavigationForm({
               type="button"
               onClick={handleSwap}
               disabled={loading || (!source && !destination)}
-              className="p-1.5 rounded-full glass-card hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition shadow-sm border border-white/60 dark:border-white/10"
+              className="p-2 sm:p-1.5 rounded-full glass-card hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition shadow-sm border border-white/60 dark:border-white/10 active:scale-95 touch-manipulation"
               title="Reverse origin and destination"
             >
               <ArrowUpDown className="w-3.5 h-3.5" />
@@ -141,7 +145,7 @@ export default function NavigationForm({
 
           {/* Destination Input */}
           <div className="relative flex items-center">
-            <div className="absolute left-3.5 flex items-center justify-center z-10">
+            <div className="absolute left-3.5 flex items-center justify-center z-10 pointer-events-none">
               <div className="w-3.5 h-3.5 rounded-full border-2 border-red-500 bg-white dark:bg-slate-900 flex items-center justify-center shadow-sm">
                 <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
               </div>
@@ -153,8 +157,8 @@ export default function NavigationForm({
               onChange={(e) => setDestination(e.target.value)}
               onFocus={() => setActiveField("destination")}
               onBlur={() => setActiveField(null)}
-              placeholder="Choose destination city..."
-              className="w-full pl-10 pr-9 py-2.5 text-sm font-semibold rounded-xl glass-input text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition shadow-sm"
+              placeholder="Destination city..."
+              className="w-full pl-10 pr-10 py-3 sm:py-2.5 text-base sm:text-sm font-semibold rounded-xl glass-input text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition shadow-sm"
               disabled={loading}
               required
             />
@@ -163,10 +167,10 @@ export default function NavigationForm({
               <button
                 type="button"
                 onClick={() => setDestination("")}
-                className="absolute right-3 p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                className="absolute right-3 p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition touch-manipulation"
                 title="Clear destination"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
@@ -176,7 +180,7 @@ export default function NavigationForm({
         {externalGpsNotice && (
           <div className="px-3 py-1.5 rounded-xl glass-card text-xs text-blue-700 dark:text-blue-300 flex items-center gap-1.5 border border-blue-200/80 dark:border-blue-900/60 shadow-xs">
             <LocateFixed className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="truncate">{externalGpsNotice}</span>
+            <span className="truncate font-semibold">{externalGpsNotice}</span>
           </div>
         )}
 
@@ -184,7 +188,7 @@ export default function NavigationForm({
         <button
           type="submit"
           disabled={loading || !source.trim() || !destination.trim()}
-          className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm transition shadow-md hover:shadow-lg flex items-center justify-center gap-2 transform active:scale-[0.98]"
+          className="w-full py-3 sm:py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm min-h-[46px] transition shadow-md hover:shadow-lg flex items-center justify-center gap-2 transform active:scale-[0.98] touch-manipulation"
         >
           {loading ? (
             <>

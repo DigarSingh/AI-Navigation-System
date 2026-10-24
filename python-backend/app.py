@@ -502,11 +502,22 @@ def calculate_travel_time(
 
     if ml_model is not None:
         try:
-            features = pd.DataFrame(
-                [[distance_km, road_type, traffic_level, time_of_day]],
-                columns=ML_FEATURE_NAMES,
-            )
-            pred = float(ml_model.predict(features)[0])
+            # Random Forest models capped at training range (~1500 km) cannot extrapolate
+            # to extreme distances. For distance_km > 1500, scale proportionally using learned rate at 1400km
+            if distance_km <= 1500.0:
+                features = pd.DataFrame(
+                    [[distance_km, road_type, traffic_level, time_of_day]],
+                    columns=ML_FEATURE_NAMES,
+                )
+                pred = float(ml_model.predict(features)[0])
+            else:
+                boundary_features = pd.DataFrame(
+                    [[1400.0, road_type, traffic_level, time_of_day]],
+                    columns=ML_FEATURE_NAMES,
+                )
+                pred_boundary = float(ml_model.predict(boundary_features)[0])
+                pred = (distance_km / 1400.0) * pred_boundary
+
             if not (math.isnan(pred) or math.isinf(pred) or pred <= 0):
                 hours = pred
                 method = "ml_random_forest"
@@ -735,8 +746,25 @@ def predict_route():
         if road_network is None:
             return jsonify({"error": "Road network not initialized"}), 503
 
-        # Case-insensitive lookup matching canonical city names
-        source = CITY_LOOKUP.get(source_in.lower(), source_in)
+        # Case-insensitive lookup matching canonical city names or GPS current location
+        user_coord = data.get('user_coord')
+        is_gps_origin = any(kw in source_in.lower() for kw in ["location", "gps", "current"])
+        origin_coord = None
+
+        if (is_gps_origin or source_in.lower() == "your location") and user_coord and isinstance(user_coord, (list, tuple)) and len(user_coord) == 2:
+            origin_coord = [float(user_coord[0]), float(user_coord[1])]
+            # Find nearest city node in highway network
+            closest = "Delhi"
+            min_dist = float("inf")
+            for city_name, (c_lat, c_lon) in CITY_COORDS.items():
+                d = haversine_distance((origin_coord[0], origin_coord[1]), (c_lat, c_lon))
+                if d < min_dist:
+                    min_dist = d
+                    closest = city_name
+            source = closest
+        else:
+            source = CITY_LOOKUP.get(source_in.lower(), source_in)
+
         destination = CITY_LOOKUP.get(destination_in.lower(), destination_in)
 
         # Check if cities exist in network
@@ -746,7 +774,7 @@ def predict_route():
         if destination not in road_network.nodes:
             return jsonify({"error": f"Destination city '{destination_in}' not found in network"}), 404
 
-        if source == destination:
+        if source == destination and not origin_coord:
             return jsonify({"error": "Source and destination cannot be the same"}), 400
 
         # Find shortest path using Dijkstra's algorithm on real highway graph
@@ -758,6 +786,9 @@ def predict_route():
 
         # Assemble waypoint coordinates [lat, lon]
         coordinates = get_path_coordinates(road_network, path)
+        if origin_coord:
+            coordinates[0] = origin_coord
+            path[0] = "Your Location"
         geometry = coordinates
         osrm_time = None
 

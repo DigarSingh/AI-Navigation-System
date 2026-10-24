@@ -97,6 +97,13 @@ export default function MapView({
   const [showEv, setShowEv] = useState(true);
   const [isLegendCollapsed, setIsLegendCollapsed] = useState(false);
 
+  // Auto-collapse legend on small mobile screens to keep map clean and visible
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 640) {
+      setIsLegendCollapsed(true);
+    }
+  }, []);
+
   // Toggle All Amenities / Tolls on route
   const toggleAllAmenities = () => {
     const anyActive = showTolls || showFuel || showCng || showEv;
@@ -611,8 +618,8 @@ export default function MapView({
       {/* Map Legend (Top-Right) with Interactive Show/Hide Toggles */}
       <div
         className={`absolute ${
-          isNavigating ? "top-28 sm:top-4" : "top-4"
-        } right-4 glass-panel rounded-2xl p-3 z-[1000] text-xs max-w-[245px] transition-all shadow-2xl`}
+          isNavigating ? "top-28 sm:top-4" : "top-3 sm:top-4"
+        } right-3 sm:right-4 glass-panel rounded-2xl p-2.5 sm:p-3 z-[1000] text-xs max-w-[210px] sm:max-w-[245px] transition-all shadow-2xl`}
       >
         {/* Header with Minimize/Collapse Toggle */}
         <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-200/60 dark:border-slate-700/60">
@@ -744,8 +751,12 @@ export default function MapView({
       {/* Floating Map Controls (Bottom-Right: Map Type Layers & My Location) */}
       <div
         className={`absolute ${
-          isNavigating ? "bottom-36 sm:bottom-6" : "bottom-6"
-        } right-4 z-[1000] flex flex-col items-end gap-3 pointer-events-auto transition-all`}
+          isNavigating
+            ? "bottom-36 sm:bottom-6"
+            : routeData
+            ? "bottom-24 sm:bottom-6"
+            : "bottom-6"
+        } right-3 sm:right-4 z-[1000] flex flex-col items-end gap-2.5 sm:gap-3 pointer-events-auto transition-all`}
       >
           {/* Map Type (Layers) Quick Selector Button */}
           <div className="relative">

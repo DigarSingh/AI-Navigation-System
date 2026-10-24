@@ -6,7 +6,16 @@ import MapView from "@/components/MapView";
 import RouteDetails from "@/components/RouteDetails";
 import NavigationHUD from "@/components/NavigationHUD";
 import { findNearestCity, ALL_CITIES } from "@/lib/cities";
-import { Compass, Sun, Moon } from "lucide-react";
+import {
+  Compass,
+  Sun,
+  Moon,
+  List,
+  Map as MapIcon,
+  ChevronDown,
+  ChevronUp,
+  Navigation,
+} from "lucide-react";
 
 export interface AlternateRouteDetail {
   path: string[];
@@ -63,9 +72,13 @@ export default function Home() {
 
   // GPS real-time user location state
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [isUsingGpsSource, setIsUsingGpsSource] = useState(false);
   const [locating, setLocating] = useState(false);
   const [externalSource, setExternalSource] = useState("");
   const [gpsNotice, setGpsNotice] = useState<string | null>(null);
+
+  // Mobile drawer / sheet visibility toggle
+  const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false);
 
   // Turn-by-Turn Live GPS Navigation Mode state
   const [isNavigating, setIsNavigating] = useState(false);
@@ -101,6 +114,7 @@ export default function Home() {
         })
         .catch(() => { });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const applyThemeClass = (newTheme: "light" | "dark") => {
@@ -139,7 +153,8 @@ export default function Home() {
   const applyDetectedLocation = (latitude: number, longitude: number, label: string) => {
     setUserLocation([latitude, longitude]);
     const nearest = findNearestCity(latitude, longitude);
-    setExternalSource(nearest.city);
+    setExternalSource("Your Location");
+    setIsUsingGpsSource(true);
     setGpsNotice(
       `${label}: Active (${nearest.city} hub • ${latitude.toFixed(4)}° N, ${longitude.toFixed(4)}° E)`
     );
@@ -215,10 +230,18 @@ export default function Home() {
 
     setIsNavigating(true);
     setCurrentStepIndex(0);
+    setIsMobilePanelOpen(false);
 
-    // Starting point of the route at road view
+    // When origin is GPS current location, start car position directly from userLocation
+    const isGpsOrigin =
+      isUsingGpsSource ||
+      (displayedRouteData.path &&
+        displayedRouteData.path[0]?.toLowerCase().includes("location"));
+
     const startingPoint: [number, number] =
-      displayedRouteData.geometry && displayedRouteData.geometry.length > 0
+      isGpsOrigin && userLocation
+        ? userLocation
+        : displayedRouteData.geometry && displayedRouteData.geometry.length > 0
         ? displayedRouteData.geometry[0]
         : displayedRouteData.coordinates[0];
 
@@ -364,10 +387,15 @@ export default function Home() {
     });
 
     const coords: [number, number][] = [];
-    for (const city of path) {
-      const c = cityCoordMap.get(city);
-      if (c) {
-        coords.push(c);
+    for (let i = 0; i < path.length; i++) {
+      const city = path[i];
+      if (i === 0 && (isUsingGpsSource || city.toLowerCase().includes("location")) && userLocation) {
+        coords.push(userLocation);
+      } else {
+        const c = cityCoordMap.get(city);
+        if (c) {
+          coords.push(c);
+        }
       }
     }
     return coords.length === path.length ? coords : fallbackCoords;
@@ -381,13 +409,33 @@ export default function Home() {
     setIsAlternateSelected(false);
     setIsNavigating(false);
 
+    // Check if source represents GPS location
+    const isGpsOrigin =
+      isUsingGpsSource ||
+      source.trim().toLowerCase() === "your location" ||
+      source.trim().toLowerCase().includes("gps") ||
+      source.trim().toLowerCase().includes("current location") ||
+      source.trim().toLowerCase().includes("my location");
+
+    setIsUsingGpsSource(isGpsOrigin);
+
     try {
+      const bodyPayload: {
+        source: string;
+        destination: string;
+        userCoord?: [number, number];
+      } = { source, destination };
+
+      if (isGpsOrigin && userLocation) {
+        bodyPayload.userCoord = userLocation;
+      }
+
       const response = await fetch("/api/shortest-path", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ source, destination }),
+        body: JSON.stringify(bodyPayload),
       });
 
       const data = await response.json();
@@ -398,6 +446,8 @@ export default function Home() {
 
       setOptimalRouteData(data);
       setDisplayedRouteData(data);
+      // On mobile, collapse details panel after finding route so map & route are immediately visible
+      setIsMobilePanelOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -440,14 +490,14 @@ export default function Home() {
 
   return (
     <div className={theme === "dark" ? "dark" : ""}>
-      <main className="h-screen w-screen flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors font-sans relative">
+      <main className="h-screen h-[100dvh] w-screen flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors font-sans relative">
         {/* Ambient background glow orbs for glassmorphism reflections */}
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 dark:bg-blue-600/15 rounded-full blur-3xl pointer-events-none -z-10" />
         <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-indigo-500/10 dark:bg-indigo-600/15 rounded-full blur-3xl pointer-events-none -z-10" />
 
         {/* Top Floating Glass Header / Navbar - Hidden during live route navigation */}
         {!isNavigating && (
-          <header className="h-16 px-4 sm:px-6 flex items-center justify-between z-30 transition-all flex-shrink-0 glass-panel border-b border-white/50 dark:border-white/10 shadow-sm animate-in fade-in duration-200">
+          <header className="h-14 sm:h-16 px-3 sm:px-6 flex items-center justify-between z-30 transition-all flex-shrink-0 glass-panel border-b border-white/50 dark:border-white/10 shadow-sm animate-in fade-in duration-200">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25">
                 <Compass className="w-5 h-5" />
@@ -530,9 +580,59 @@ export default function Home() {
             />
           </div>
 
+          {/* Mobile Map / Route Details Toggle Pill */}
+          {!isNavigating && displayedRouteData && (
+            <button
+              type="button"
+              onClick={() => setIsMobilePanelOpen(!isMobilePanelOpen)}
+              className="sm:hidden absolute top-3 left-3 z-30 px-3.5 py-2 rounded-full glass-panel shadow-lg border border-white/60 dark:border-white/10 text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 active:scale-95 touch-manipulation backdrop-blur-md"
+              title={isMobilePanelOpen ? "View Map" : "View Route Details"}
+            >
+              {isMobilePanelOpen ? (
+                <>
+                  <MapIcon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>View Map</span>
+                </>
+              ) : (
+                <>
+                  <List className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>Route Details</span>
+                </>
+              )}
+            </button>
+          )}
+
           {/* Left Floating Frosted Glass Card - Floats directly on top of the interactive map */}
           {!isNavigating && (
-            <aside className="absolute top-4 left-4 bottom-4 w-[calc(100%-2rem)] sm:w-[430px] max-w-full z-20 flex flex-col glass-panel rounded-3xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.35)] overflow-y-auto no-scrollbar transition-all border border-white/60 dark:border-white/10">
+            <aside
+              className={`
+                absolute z-20 flex flex-col glass-panel shadow-[0_25px_60px_-15px_rgba(0,0,0,0.35)] overflow-y-auto no-scrollbar transition-all border border-white/60 dark:border-white/10
+                ${
+                  displayedRouteData
+                    ? isMobilePanelOpen
+                      ? "top-2 left-2 right-2 bottom-2 sm:top-4 sm:left-4 sm:bottom-4 sm:right-auto sm:w-[430px] rounded-3xl flex"
+                      : "hidden sm:flex sm:top-4 sm:left-4 sm:bottom-4 sm:w-[430px] rounded-3xl"
+                    : "top-2 left-2 right-2 max-h-[90vh] sm:top-4 sm:left-4 sm:bottom-4 sm:right-auto sm:w-[430px] rounded-3xl flex"
+                }
+              `}
+            >
+              {/* Mobile Header in expanded details panel to collapse back to map */}
+              {displayedRouteData && (
+                <div className="sm:hidden flex items-center justify-between px-4 pt-3 pb-2 border-b border-white/40 dark:border-white/10 flex-shrink-0">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    Route Information
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsMobilePanelOpen(false)}
+                    className="flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation"
+                  >
+                    <span>View Map</span>
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {/* Routing Inputs */}
               <NavigationForm
                 onSubmit={handleFindRoute}
@@ -564,6 +664,50 @@ export default function Home() {
                 </div>
               )}
             </aside>
+          )}
+
+          {/* Mobile Bottom Mini Summary Card - Shown when route is computed and drawer is collapsed */}
+          {!isNavigating && displayedRouteData && !isMobilePanelOpen && (
+            <div className="sm:hidden absolute bottom-3 left-3 right-3 z-20 glass-panel rounded-2xl p-3 shadow-2xl border border-white/60 dark:border-white/10 animate-in slide-in-from-bottom-3 duration-200">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-bold truncate max-w-[105px] text-slate-800 dark:text-slate-100">
+                    {displayedRouteData.path[0]}
+                  </span>
+                  <span className="text-slate-400 text-xs">➔</span>
+                  <span className="text-xs font-bold truncate max-w-[105px] text-slate-800 dark:text-slate-100">
+                    {displayedRouteData.path[displayedRouteData.path.length - 1]}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                    {displayedRouteData.time}
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    • {displayedRouteData.distance.toFixed(0)} km
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleStartNavigation}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 active:from-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/30 touch-manipulation"
+                >
+                  <Navigation className="w-4 h-4 fill-white" />
+                  <span>Start Navigation</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsMobilePanelOpen(true)}
+                  className="py-2.5 px-3 rounded-xl glass-card hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center gap-1 border border-white/60 dark:border-white/10 shadow-xs touch-manipulation"
+                >
+                  <span>Details</span>
+                  <ChevronUp className="w-4 h-4 text-slate-500" />
+                </button>
+              </div>
+            </div>
           )}
 
           {/* Google Maps Turn-by-Turn Navigation HUD Overlay */}

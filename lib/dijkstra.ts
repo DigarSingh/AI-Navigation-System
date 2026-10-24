@@ -3,7 +3,7 @@
  * Guarantees zero-downtime routing even if the external Python backend is offline or sleeping.
  */
 
-import { CITY_COORDS } from "./cities";
+import { CITY_COORDS, findNearestCity } from "./cities";
 
 export interface RouteStep {
   instruction: string;
@@ -341,12 +341,34 @@ export function dijkstra(
  */
 export async function computeDijkstraRoute(
   sourceInput: string,
-  destinationInput: string
+  destinationInput: string,
+  userCoord?: [number, number]
 ): Promise<ComputedRoute> {
-  const source =
-    Object.keys(CITY_COORDS).find(
-      (c) => c.toLowerCase() === sourceInput.trim().toLowerCase()
-    ) || sourceInput.trim();
+  const trimmedSrc = sourceInput.trim();
+  const isGpsOrigin =
+    trimmedSrc.toLowerCase().includes("location") ||
+    trimmedSrc.toLowerCase().includes("gps") ||
+    trimmedSrc.toLowerCase() === "my location" ||
+    trimmedSrc.toLowerCase() === "your location" ||
+    trimmedSrc.toLowerCase() === "your current location";
+
+  let originCoord: [number, number] | null = null;
+  let source: string;
+
+  if (isGpsOrigin && userCoord) {
+    originCoord = userCoord;
+    const nearest = findNearestCity(userCoord[0], userCoord[1]);
+    source = nearest.city;
+  } else {
+    source =
+      Object.keys(CITY_COORDS).find(
+        (c) => c.toLowerCase() === trimmedSrc.toLowerCase()
+      ) || trimmedSrc;
+
+    if (userCoord && (trimmedSrc.toLowerCase() === "your location" || isGpsOrigin)) {
+      originCoord = userCoord;
+    }
+  }
 
   const destination =
     Object.keys(CITY_COORDS).find(
@@ -361,6 +383,12 @@ export async function computeDijkstraRoute(
   const coordinates: [number, number][] = primary.path.map(
     (city) => CITY_COORDS[city] || [28.6139, 77.209]
   );
+
+  // If user selected GPS current location as start, anchor first coordinate to exact GPS position!
+  if (originCoord) {
+    coordinates[0] = originCoord;
+    primary.path[0] = "Your Location";
+  }
 
   let geometry = coordinates;
   let distanceKm = primary.distance;
