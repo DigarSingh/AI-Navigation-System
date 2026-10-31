@@ -370,10 +370,27 @@ export async function computeDijkstraRoute(
     }
   }
 
-  const destination =
-    Object.keys(CITY_COORDS).find(
-      (c) => c.toLowerCase() === destinationInput.trim().toLowerCase()
-    ) || destinationInput.trim();
+  const trimmedDest = destinationInput.trim();
+  const isGpsDest =
+    trimmedDest.toLowerCase().includes("location") ||
+    trimmedDest.toLowerCase().includes("gps") ||
+    trimmedDest.toLowerCase() === "my location" ||
+    trimmedDest.toLowerCase() === "your location" ||
+    trimmedDest.toLowerCase() === "your current location";
+
+  let destCoord: [number, number] | null = null;
+  let destination: string;
+
+  if (isGpsDest && userCoord) {
+    destCoord = userCoord;
+    const nearest = findNearestCity(userCoord[0], userCoord[1]);
+    destination = nearest.city;
+  } else {
+    destination =
+      Object.keys(CITY_COORDS).find(
+        (c) => c.toLowerCase() === trimmedDest.toLowerCase()
+      ) || trimmedDest;
+  }
 
   const primary = dijkstra(source, destination);
   if (!primary) {
@@ -388,6 +405,11 @@ export async function computeDijkstraRoute(
   if (originCoord) {
     coordinates[0] = originCoord;
     primary.path[0] = "Your Location";
+  }
+
+  if (destCoord) {
+    coordinates[coordinates.length - 1] = destCoord;
+    primary.path[primary.path.length - 1] = "Your Location";
   }
 
   let geometry = coordinates;

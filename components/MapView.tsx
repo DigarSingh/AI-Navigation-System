@@ -26,6 +26,8 @@ interface MapViewProps {
   isNavigating?: boolean;
   activeCarPosition?: [number, number] | null;
   carHeading?: number;
+  isMapFollowActive?: boolean;
+  onUserFollowChange?: (following: boolean) => void;
 }
 
 type MapType = "streets" | "satellite" | "terrain";
@@ -70,6 +72,8 @@ export default function MapView({
   isNavigating = false,
   activeCarPosition = null,
   carHeading = 0,
+  isMapFollowActive = true,
+  onUserFollowChange,
 }: MapViewProps) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -81,6 +85,16 @@ export default function MapView({
   const userMarkerRef = useRef<any[]>([]);
   const navCarMarkerRef = useRef<any>(null);
   const prevNavigatingRef = useRef<boolean>(false);
+  const isNavigatingRef = useRef<boolean>(isNavigating);
+  const onUserFollowChangeRef = useRef<((following: boolean) => void) | undefined>(onUserFollowChange);
+
+  useEffect(() => {
+    isNavigatingRef.current = isNavigating;
+  }, [isNavigating]);
+
+  useEffect(() => {
+    onUserFollowChangeRef.current = onUserFollowChange;
+  }, [onUserFollowChange]);
 
   // Cached points of interest along active route
   const tollsDataRef = useRef<TollPlaza[]>([]);
@@ -140,6 +154,12 @@ export default function MapView({
             maxZoom: 19,
           }
         ).addTo(map);
+
+        map.on("dragstart", () => {
+          if (isNavigatingRef.current) {
+            onUserFollowChangeRef.current?.(false);
+          }
+        });
 
         currentTileLayerRef.current = defaultTiles;
         mapInstanceRef.current = map;
@@ -206,9 +226,14 @@ export default function MapView({
 
   // Center/Fly to User / Car Location
   const handleCenterOnUser = () => {
-    const target = (isNavigating && activeCarPosition) ? activeCarPosition : userLocation;
+    if (isNavigating && activeCarPosition && mapInstanceRef.current) {
+      onUserFollowChangeRef.current?.(true);
+      mapInstanceRef.current.flyTo(activeCarPosition, 17, { duration: 1.2 });
+      return;
+    }
+    const target = userLocation;
     if (target && mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo(target, isNavigating ? 17 : 11, { duration: 1.2 });
+      mapInstanceRef.current.flyTo(target, 11, { duration: 1.2 });
       if (!isNavigating && userMarkerRef.current && userMarkerRef.current.length > 1) {
         userMarkerRef.current[1].openPopup();
       }
@@ -335,22 +360,31 @@ export default function MapView({
       }
 
       // When starting navigation or if zoomed out: zoom straight into starting point at road view (Zoom 17)
-      if (isStartingNavigation || map.getZoom() < 16) {
+      if (isStartingNavigation) {
+        onUserFollowChangeRef.current?.(true);
         map.flyTo(activeCarPosition, 17, {
           animate: true,
           duration: 1.6,
           easeLinearity: 0.25,
         });
-      } else {
-        // While cruising along the road at zoom 16-17, smoothly pan to follow vehicle
-        map.panTo(activeCarPosition, {
-          animate: true,
-          duration: 0.5,
-          noMoveStart: true,
-        });
+      } else if (isMapFollowActive) {
+        if (map.getZoom() < 16) {
+          map.flyTo(activeCarPosition, 17, {
+            animate: true,
+            duration: 1.2,
+            easeLinearity: 0.25,
+          });
+        } else {
+          // While cruising along the road at zoom 16-17, smoothly pan to follow vehicle
+          map.panTo(activeCarPosition, {
+            animate: true,
+            duration: 0.5,
+            noMoveStart: true,
+          });
+        }
       }
     });
-  }, [isNavigating, activeCarPosition, carHeading]);
+  }, [isNavigating, activeCarPosition, carHeading, isMapFollowActive]);
 
   // Handle Base Route Calculation & Polyline Drawing
   useEffect(() => {

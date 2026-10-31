@@ -327,3 +327,19 @@ def test_predict_with_gps_user_coord(client):
     assert data["distance"] > 200
 
 
+def test_predict_with_gps_destination_coord(client):
+    """Verify routing arriving directly at user's GPS current location."""
+    res = client.post("/predict", json={
+        "source": "Delhi",
+        "destination": "Your Location",
+        "user_coord": [30.3255, 78.0412]  # Dehradun area coordinates
+    })
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["path"][-1] == "Your Location"
+    assert data["coordinates"][-1] == [30.3255, 78.0412]
+    assert data["path"][0] == "Delhi"
+    assert data["distance"] > 200
+
+
+

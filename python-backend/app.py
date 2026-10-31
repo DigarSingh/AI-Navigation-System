@@ -765,7 +765,21 @@ def predict_route():
         else:
             source = CITY_LOOKUP.get(source_in.lower(), source_in)
 
-        destination = CITY_LOOKUP.get(destination_in.lower(), destination_in)
+        # Handle destination when set to GPS current location or city
+        is_gps_dest = any(kw in destination_in.lower() for kw in ["location", "gps", "current"])
+        dest_coord = None
+        if (is_gps_dest or destination_in.lower() == "your location") and user_coord and isinstance(user_coord, (list, tuple)) and len(user_coord) == 2:
+            dest_coord = [float(user_coord[0]), float(user_coord[1])]
+            closest_dest = "Delhi"
+            min_dist_dest = float("inf")
+            for city_name, (c_lat, c_lon) in CITY_COORDS.items():
+                d = haversine_distance((dest_coord[0], dest_coord[1]), (c_lat, c_lon))
+                if d < min_dist_dest:
+                    min_dist_dest = d
+                    closest_dest = city_name
+            destination = closest_dest
+        else:
+            destination = CITY_LOOKUP.get(destination_in.lower(), destination_in)
 
         # Check if cities exist in network
         if source not in road_network.nodes:
@@ -774,7 +788,7 @@ def predict_route():
         if destination not in road_network.nodes:
             return jsonify({"error": f"Destination city '{destination_in}' not found in network"}), 404
 
-        if source == destination and not origin_coord:
+        if source == destination and not origin_coord and not dest_coord:
             return jsonify({"error": "Source and destination cannot be the same"}), 400
 
         # Find shortest path using Dijkstra's algorithm on real highway graph
@@ -789,6 +803,9 @@ def predict_route():
         if origin_coord:
             coordinates[0] = origin_coord
             path[0] = "Your Location"
+        if dest_coord:
+            coordinates[-1] = dest_coord
+            path[-1] = "Your Location"
         geometry = coordinates
         osrm_time = None
 

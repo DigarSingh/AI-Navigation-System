@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
   Navigation,
+  CheckCircle2,
 } from "lucide-react";
 
 export interface AlternateRouteDetail {
@@ -62,6 +63,12 @@ function computeHeading(c1: [number, number], c2: [number, number]): number {
   return (brng + 360) % 360;
 }
 
+function smoothHeading(current: number, target: number, factor = 0.25): number {
+  let diff = (target - current + 360) % 360;
+  if (diff > 180) diff -= 360;
+  return (current + diff * factor + 360) % 360;
+}
+
 function computeHaversineDistanceMeters(
   lat1: number,
   lon1: number,
@@ -105,10 +112,15 @@ export default function Home() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [activeCarPosition, setActiveCarPosition] = useState<[number, number] | null>(null);
   const [carHeading, setCarHeading] = useState(0);
-  const [currentSpeedKmh, setCurrentSpeedKmh] = useState(0);
+  const [currentSpeedKmh, setCurrentSpeedKmh] = useState<number | null>(0);
+  const [speedStatus, setSpeedStatus] = useState<"sensor" | "calculated" | "unavailable">("sensor");
+  const [gpsLost, setGpsLost] = useState(false);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [isMapFollowActive, setIsMapFollowActive] = useState(true);
 
   const watchIdRef = useRef<number | null>(null);
   const lastGpsPointRef = useRef<{ lat: number; lon: number; time: number } | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
 
   // Initialize theme on mount from localStorage or system preference
   useEffect(() => {
@@ -133,7 +145,7 @@ export default function Home() {
             }
           };
         })
-        .catch(() => { });
+        .catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -252,6 +264,8 @@ export default function Home() {
     setIsNavigating(true);
     setCurrentStepIndex(0);
     setIsMobilePanelOpen(false);
+    setIsMapFollowActive(true);
+    setGpsLost(false);
 
     // When origin is GPS current location, start car position directly from userLocation
     const isGpsOrigin =
@@ -291,56 +305,111 @@ export default function Home() {
         ? displayedRouteData.steps[0].instruction
         : `Head towards ${displayedRouteData.path[1] || displayedRouteData.path[0]}`;
 
-    speakInstruction(`Starting live navigation towards ${displayedRouteData.destination || "destination"}. ${firstInstruction}`);
+    speakInstruction(
+      `Starting live navigation towards ${
+        displayedRouteData.destination || "destination"
+      }. ${firstInstruction}`
+    );
 
     setCurrentSpeedKmh(0);
+    setSpeedStatus("sensor");
     lastGpsPointRef.current = null;
 
     // Real device GPS tracking via Geolocation watchPosition
-    if (navigator.geolocation) {
+    if (typeof window !== "undefined" && navigator.geolocation) {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
+          const accuracy = pos.coords.accuracy;
           const now = Date.now();
+
+          setGpsAccuracy(accuracy);
+          setGpsLost(false);
           setActiveCarPosition([lat, lon]);
 
-          if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
-            setCarHeading(pos.coords.heading);
+          // Heading calculation:
+          // 1. If device provides valid hardware heading and is moving (> 0.8 m/s), use it:
+          let newHeading: number | null = null;
+          if (
+            pos.coords.heading !== null &&
+            !isNaN(pos.coords.heading) &&
+            pos.coords.heading >= 0 &&
+            (pos.coords.speed ?? 0) > 0.8
+          ) {
+            newHeading = pos.coords.heading;
+          } else if (lastGpsPointRef.current) {
+            // 2. Fallback to bearing between consecutive valid GPS positions (if displacement >= 3m)
+            const distM = computeHaversineDistanceMeters(
+              lastGpsPointRef.current.lat,
+              lastGpsPointRef.current.lon,
+              lat,
+              lon
+            );
+            if (distM >= 3.0) {
+              newHeading = computeHeading(
+                [lastGpsPointRef.current.lat, lastGpsPointRef.current.lon],
+                [lat, lon]
+              );
+            }
+          }
+
+          if (newHeading !== null) {
+            setCarHeading((prev) => smoothHeading(prev, newHeading!, 0.35));
           }
 
           // Real-time GPS Speed:
-          // 1. pos.coords.speed is in meters/second if provided by device GPS hardware
           if (
             pos.coords.speed !== null &&
             !isNaN(pos.coords.speed) &&
             pos.coords.speed >= 0
           ) {
-            const speedKmh = Math.round(pos.coords.speed * 3.6);
-            setCurrentSpeedKmh(speedKmh);
+            // Filter stationary GPS jitter (< 0.5 m/s)
+            if (pos.coords.speed < 0.5) {
+              setCurrentSpeedKmh(0);
+              setSpeedStatus("sensor");
+            } else {
+              const speedKmh = Math.round(pos.coords.speed * 3.6);
+              setCurrentSpeedKmh(Math.min(speedKmh, 180));
+              setSpeedStatus("sensor");
+            }
           } else if (lastGpsPointRef.current) {
-            // 2. High-precision fallback from delta distance over delta time
+            // Timestamped fallback from delta distance over delta time
             const dtSeconds = (now - lastGpsPointRef.current.time) / 1000;
-            if (dtSeconds >= 0.5 && dtSeconds < 30) {
+            if (dtSeconds >= 1.0 && dtSeconds < 30) {
               const distM = computeHaversineDistanceMeters(
                 lastGpsPointRef.current.lat,
                 lastGpsPointRef.current.lon,
                 lat,
                 lon
               );
-              // Ignore stationary GPS jitter (< 1.5 meters)
-              if (distM >= 1.5) {
+              // Ignore stationary jitter (< 2.5m displacement)
+              if (distM >= 2.5) {
                 const calculatedSpeed = Math.round((distM / dtSeconds) * 3.6);
                 setCurrentSpeedKmh(Math.min(calculatedSpeed, 180));
+                setSpeedStatus("calculated");
               } else {
                 setCurrentSpeedKmh(0);
+                setSpeedStatus("sensor");
               }
             }
+          } else {
+            setCurrentSpeedKmh(0);
+            setSpeedStatus("sensor");
           }
+
           lastGpsPointRef.current = { lat, lon, time: now };
         },
-        (err) => console.log("Live GPS tracking notice:", err),
-        { enableHighAccuracy: true, maximumAge: 1000 }
+        (err) => {
+          console.warn("Live GPS tracking notice:", err);
+          setGpsLost(true);
+          setSpeedStatus("unavailable");
+        },
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 1000 }
       );
     }
   };
@@ -349,6 +418,9 @@ export default function Home() {
   const handleExitNavigation = () => {
     setIsNavigating(false);
     setCurrentSpeedKmh(0);
+    setSpeedStatus("sensor");
+    setGpsLost(false);
+    setIsMapFollowActive(true);
     lastGpsPointRef.current = null;
     if (watchIdRef.current !== null && navigator.geolocation) {
       navigator.geolocation.clearWatch(watchIdRef.current);
@@ -366,9 +438,6 @@ export default function Home() {
       const nextIdx = currentStepIndex + 1;
       setCurrentStepIndex(nextIdx);
       speakInstruction(displayedRouteData.steps[nextIdx].instruction);
-
-      // During manual step advancement in test mode when stationary, simulate realistic cruising speed
-      setCurrentSpeedKmh((prev) => (prev === 0 ? Math.floor(Math.random() * 12) + 65 : prev));
 
       // Advance vehicle position and heading along road geometry
       if (displayedRouteData.geometry && displayedRouteData.geometry.length > 1) {
@@ -438,7 +507,10 @@ export default function Home() {
   }, []);
 
   // Coordinate lookup for path waypoints
-  const getCoordinatesForPath = (path: string[], fallbackCoords: [number, number][]): [number, number][] => {
+  const getCoordinatesForPath = (
+    path: string[],
+    fallbackCoords: [number, number][]
+  ): [number, number][] => {
     if (!optimalRouteData) return fallbackCoords;
     const cityCoordMap = new Map<string, [number, number]>();
     optimalRouteData.path.forEach((city, idx) => {
@@ -450,7 +522,17 @@ export default function Home() {
     const coords: [number, number][] = [];
     for (let i = 0; i < path.length; i++) {
       const city = path[i];
-      if (i === 0 && (isUsingGpsSource || city.toLowerCase().includes("location")) && userLocation) {
+      if (
+        i === 0 &&
+        (isUsingGpsSource || city.toLowerCase().includes("location")) &&
+        userLocation
+      ) {
+        coords.push(userLocation);
+      } else if (
+        i === path.length - 1 &&
+        city.toLowerCase().includes("location") &&
+        userLocation
+      ) {
         coords.push(userLocation);
       } else {
         const c = cityCoordMap.get(city);
@@ -470,13 +552,19 @@ export default function Home() {
     setIsAlternateSelected(false);
     setIsNavigating(false);
 
-    // Check if source represents GPS location
+    // Check if source or destination represents GPS location
     const isGpsOrigin =
       isUsingGpsSource ||
       source.trim().toLowerCase() === "your location" ||
       source.trim().toLowerCase().includes("gps") ||
       source.trim().toLowerCase().includes("current location") ||
       source.trim().toLowerCase().includes("my location");
+
+    const isGpsDestination =
+      destination.trim().toLowerCase() === "your location" ||
+      destination.trim().toLowerCase().includes("gps") ||
+      destination.trim().toLowerCase().includes("current location") ||
+      destination.trim().toLowerCase().includes("my location");
 
     setIsUsingGpsSource(isGpsOrigin);
 
@@ -487,7 +575,7 @@ export default function Home() {
         userCoord?: [number, number];
       } = { source, destination };
 
-      if (isGpsOrigin && userLocation) {
+      if ((isGpsOrigin || isGpsDestination) && userLocation) {
         bodyPayload.userCoord = userLocation;
       }
 
@@ -549,6 +637,30 @@ export default function Home() {
     setIsNavigating(false);
   };
 
+  const handleRecenterMap = () => {
+    setIsMapFollowActive(true);
+  };
+
+  // Swipe gesture handlers for mobile bottom sheet
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartYRef.current === null) return;
+    const touchEndY = e.changedTouches[0].clientY;
+    const deltaY = touchEndY - touchStartYRef.current;
+    touchStartYRef.current = null;
+
+    if (deltaY < -40) {
+      // Swiped UP -> expand bottom sheet
+      setIsMobilePanelOpen(true);
+    } else if (deltaY > 40) {
+      // Swiped DOWN -> collapse bottom sheet
+      setIsMobilePanelOpen(false);
+    }
+  };
+
   return (
     <div className={theme === "dark" ? "dark" : ""}>
       <main className="h-screen h-[100dvh] w-screen flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors font-sans relative">
@@ -559,7 +671,7 @@ export default function Home() {
         {/* Top Floating Glass Header / Navbar - Hidden during live route navigation */}
         {!isNavigating && (
           <header className="h-14 sm:h-16 px-3 sm:px-6 flex items-center justify-between z-30 transition-all flex-shrink-0 glass-panel border-b border-white/50 dark:border-white/10 shadow-sm animate-in fade-in duration-200">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5 sm:gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25">
                 <Compass className="w-5 h-5" />
               </div>
@@ -575,29 +687,30 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               {/* GPS live indicator badge - Click to detect device GPS */}
               <button
                 type="button"
                 onClick={handleLocateMe}
                 disabled={locating}
-                className="hidden md:flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-full glass-card hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-white/60 dark:border-white/10 shadow-xs transition cursor-pointer"
+                className="hidden md:flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-full glass-card hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-white/60 dark:border-white/10 shadow-xs transition cursor-pointer min-h-[36px]"
                 title="Detect automatically using device GPS"
               >
                 <span
-                  className={`w-2 h-2 rounded-full ${locating
+                  className={`w-2 h-2 rounded-full ${
+                    locating
                       ? "bg-amber-500 animate-ping"
                       : userLocation
-                        ? "bg-blue-500 animate-pulse"
-                        : "bg-emerald-500"
-                    }`}
+                      ? "bg-blue-500 animate-pulse"
+                      : "bg-emerald-500"
+                  }`}
                 />
                 <span>
                   {locating
                     ? "Acquiring GPS..."
                     : userLocation
-                      ? `📍 ${externalSource || "GPS Active"}`
-                      : "Detect Device GPS"}
+                    ? `📍 ${externalSource || "GPS Active"}`
+                    : "Detect Device GPS"}
                 </span>
               </button>
 
@@ -605,8 +718,9 @@ export default function Home() {
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl glass-card hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition shadow-xs border border-white/60 dark:border-white/10"
+                className="flex items-center gap-1.5 sm:gap-2 px-3 py-1.5 rounded-xl glass-card hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition shadow-xs border border-white/60 dark:border-white/10 min-h-[40px] touch-manipulation cursor-pointer"
                 title={`Switch to ${theme === "light" ? "Dark" : "Light"} mode`}
+                aria-label={`Switch to ${theme === "light" ? "Dark" : "Light"} mode`}
               >
                 {theme === "light" ? (
                   <>
@@ -626,7 +740,7 @@ export default function Home() {
 
         {/* Main Application Canvas */}
         <div className="flex-1 w-full h-full relative overflow-hidden">
-          {/* Full-Screen Map Canvas - Runs behind everything so glass can blur it! */}
+          {/* Full-Screen Map Canvas */}
           <div className="absolute inset-0 z-0">
             <MapView
               routeData={displayedRouteData}
@@ -638,63 +752,14 @@ export default function Home() {
               isNavigating={isNavigating}
               activeCarPosition={activeCarPosition}
               carHeading={carHeading}
+              isMapFollowActive={isMapFollowActive}
+              onUserFollowChange={(following) => setIsMapFollowActive(following)}
             />
           </div>
 
-          {/* Mobile Map / Route Details Toggle Pill */}
-          {!isNavigating && displayedRouteData && (
-            <button
-              type="button"
-              onClick={() => setIsMobilePanelOpen(!isMobilePanelOpen)}
-              className="sm:hidden absolute top-3 left-3 z-30 px-3.5 py-2 rounded-full glass-panel shadow-lg border border-white/60 dark:border-white/10 text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 active:scale-95 touch-manipulation backdrop-blur-md"
-              title={isMobilePanelOpen ? "View Map" : "View Route Details"}
-            >
-              {isMobilePanelOpen ? (
-                <>
-                  <MapIcon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                  <span>View Map</span>
-                </>
-              ) : (
-                <>
-                  <List className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                  <span>Route Details</span>
-                </>
-              )}
-            </button>
-          )}
-
-          {/* Left Floating Frosted Glass Card - Floats directly on top of the interactive map */}
+          {/* Desktop Permanent Floating Sidebar Card */}
           {!isNavigating && (
-            <aside
-              className={`
-                absolute z-20 flex flex-col glass-panel shadow-[0_25px_60px_-15px_rgba(0,0,0,0.35)] overflow-y-auto no-scrollbar transition-all border border-white/60 dark:border-white/10
-                ${
-                  displayedRouteData
-                    ? isMobilePanelOpen
-                      ? "top-2 left-2 right-2 bottom-2 sm:top-4 sm:left-4 sm:bottom-4 sm:right-auto sm:w-[430px] rounded-3xl flex"
-                      : "hidden sm:flex sm:top-4 sm:left-4 sm:bottom-4 sm:w-[430px] rounded-3xl"
-                    : "top-2 left-2 right-2 max-h-[90vh] sm:top-4 sm:left-4 sm:bottom-4 sm:right-auto sm:w-[430px] rounded-3xl flex"
-                }
-              `}
-            >
-              {/* Mobile Header in expanded details panel to collapse back to map */}
-              {displayedRouteData && (
-                <div className="sm:hidden flex items-center justify-between px-4 pt-3 pb-2 border-b border-white/40 dark:border-white/10 flex-shrink-0">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                    Route Information
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsMobilePanelOpen(false)}
-                    className="flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation"
-                  >
-                    <span>View Map</span>
-                    <ChevronDown className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              {/* Routing Inputs */}
+            <aside className="hidden sm:flex absolute z-20 top-4 left-4 bottom-4 w-[420px] flex-col glass-panel shadow-[0_25px_60px_-15px_rgba(0,0,0,0.35)] rounded-3xl overflow-y-auto no-scrollbar border border-white/60 dark:border-white/10 transition-all">
               <NavigationForm
                 onSubmit={handleFindRoute}
                 loading={loading}
@@ -704,15 +769,13 @@ export default function Home() {
                 onLocateMe={handleLocateMe}
               />
 
-              {/* Error Notice */}
               {error && (
-                <div className="m-3 p-3.5 rounded-2xl glass-card border border-red-300/80 dark:border-red-900/60 text-red-900 dark:text-red-200 text-xs shadow-sm">
+                <div className="mx-3 mb-2 p-3.5 rounded-2xl glass-card border border-red-300/80 dark:border-red-900/60 text-red-900 dark:text-red-200 text-xs shadow-sm">
                   <p className="font-bold mb-1">Route Planning Notice</p>
                   <p className="font-medium">{error}</p>
                 </div>
               )}
 
-              {/* Active Route Details */}
               {displayedRouteData && optimalRouteData && (
                 <div className="flex-1">
                   <RouteDetails
@@ -727,47 +790,147 @@ export default function Home() {
             </aside>
           )}
 
-          {/* Mobile Bottom Mini Summary Card - Shown when route is computed and drawer is collapsed */}
-          {!isNavigating && displayedRouteData && !isMobilePanelOpen && (
-            <div className="sm:hidden absolute bottom-3 left-3 right-3 z-20 glass-panel rounded-2xl p-3 shadow-2xl border border-white/60 dark:border-white/10 animate-in slide-in-from-bottom-3 duration-200">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-xs font-bold truncate max-w-[105px] text-slate-800 dark:text-slate-100">
-                    {displayedRouteData.path[0]}
-                  </span>
-                  <span className="text-slate-400 text-xs">➔</span>
-                  <span className="text-xs font-bold truncate max-w-[105px] text-slate-800 dark:text-slate-100">
-                    {displayedRouteData.path[displayedRouteData.path.length - 1]}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
-                    {displayedRouteData.time}
-                  </span>
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    • {displayedRouteData.distance.toFixed(0)} km
-                  </span>
-                </div>
-              </div>
+          {/* Mobile View: 1. Initial State (No Route Yet) - Sleek Floating Input Card */}
+          {!isNavigating && !displayedRouteData && (
+            <div className="sm:hidden absolute top-2 left-2 right-2 z-20 max-h-[85vh] overflow-y-auto no-scrollbar animate-in fade-in duration-200">
+              <NavigationForm
+                onSubmit={handleFindRoute}
+                loading={loading}
+                externalSource={externalSource}
+                externalGpsNotice={gpsNotice}
+                locating={locating}
+                onLocateMe={handleLocateMe}
+              />
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleStartNavigation}
-                  className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 active:from-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/30 touch-manipulation"
+              {error && (
+                <div className="mx-2.5 p-3 rounded-2xl glass-card border border-red-300/80 dark:border-red-900/60 text-red-900 dark:text-red-200 text-xs shadow-sm">
+                  <p className="font-bold mb-1">Route Planning Notice</p>
+                  <p className="font-medium">{error}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Mobile View: 2. Route Found - Polished Mobile Bottom Sheet (Collapsed Peek or Expanded) */}
+          {!isNavigating && displayedRouteData && optimalRouteData && (
+            <div className="sm:hidden">
+              {/* COLLAPSED BOTTOM PEEK SHEET */}
+              {!isMobilePanelOpen && (
+                <div
+                  onTouchStart={handleTouchStart}
+                  onTouchEnd={handleTouchEnd}
+                  className="absolute bottom-2 left-2 right-2 z-30 glass-panel rounded-2xl p-2.5 shadow-2xl border border-white/60 dark:border-white/10 animate-in slide-in-from-bottom-3 duration-200"
                 >
-                  <Navigation className="w-4 h-4 fill-white" />
-                  <span>Start Navigation</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsMobilePanelOpen(true)}
-                  className="py-2.5 px-3 rounded-xl glass-card hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center gap-1 border border-white/60 dark:border-white/10 shadow-xs touch-manipulation"
+                  {/* Touch Drag Handle */}
+                  <div
+                    onClick={() => setIsMobilePanelOpen(true)}
+                    className="w-12 h-1.5 rounded-full bg-slate-400/60 dark:bg-slate-500 mx-auto mb-2 cursor-pointer touch-manipulation"
+                    title="Swipe or tap to open details"
+                  />
+
+                  {/* Route Summary Row */}
+                  <div
+                    onClick={() => setIsMobilePanelOpen(true)}
+                    className="flex items-center justify-between gap-2 mb-2 px-1 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-xs font-bold truncate max-w-[110px] text-slate-900 dark:text-white">
+                        {displayedRouteData.path[0]}
+                      </span>
+                      <span className="text-slate-400 text-xs">➔</span>
+                      <span className="text-xs font-bold truncate max-w-[110px] text-slate-900 dark:text-white">
+                        {displayedRouteData.path[displayedRouteData.path.length - 1]}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                        {displayedRouteData.time}
+                      </span>
+                      <span className="text-[11px] font-semibold text-slate-500">
+                        &bull; {displayedRouteData.distance.toFixed(0)} km
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions Row */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleStartNavigation}
+                      className="flex-1 py-3 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 active:from-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/30 touch-manipulation min-h-[46px]"
+                    >
+                      <Navigation className="w-4 h-4 fill-white" />
+                      <span>Start Navigation</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsMobilePanelOpen(true)}
+                      className="py-3 px-3.5 rounded-xl glass-card hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center gap-1 border border-white/60 dark:border-white/10 shadow-xs touch-manipulation min-h-[46px]"
+                    >
+                      <span>Details</span>
+                      <ChevronUp className="w-4 h-4 text-slate-500" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* EXPANDED FULL BOTTOM SHEET */}
+              {isMobilePanelOpen && (
+                <div
+                  onTouchStart={handleTouchStart}
+                  onTouchEnd={handleTouchEnd}
+                  className="absolute bottom-0 left-0 right-0 z-30 glass-panel rounded-t-3xl max-h-[82vh] h-[82vh] border-t border-white/70 dark:border-white/10 shadow-2xl flex flex-col transition-all duration-300 animate-in slide-in-from-bottom duration-250"
                 >
-                  <span>Details</span>
-                  <ChevronUp className="w-4 h-4 text-slate-500" />
-                </button>
-              </div>
+                  {/* Sheet Header with Drag Handle */}
+                  <div className="px-4 pt-2.5 pb-2 border-b border-white/40 dark:border-white/10 flex flex-col flex-shrink-0">
+                    <div
+                      onClick={() => setIsMobilePanelOpen(false)}
+                      className="w-12 h-1.5 rounded-full bg-slate-400/60 dark:bg-slate-500 mx-auto mb-2 cursor-pointer touch-manipulation"
+                    />
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                        Route Details &amp; Guidance
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsMobilePanelOpen(false)}
+                        className="flex items-center gap-1 text-xs font-bold text-blue-600 dark:text-blue-400 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 touch-manipulation min-h-[40px]"
+                      >
+                        <MapIcon className="w-3.5 h-3.5" />
+                        <span>View Map</span>
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sheet Scrollable Body */}
+                  <div className="flex-1 overflow-y-auto no-scrollbar pb-6">
+                    <NavigationForm
+                      onSubmit={handleFindRoute}
+                      loading={loading}
+                      externalSource={externalSource}
+                      externalGpsNotice={gpsNotice}
+                      locating={locating}
+                      onLocateMe={handleLocateMe}
+                    />
+
+                    {error && (
+                      <div className="mx-3 my-2 p-3 rounded-2xl glass-card border border-red-300/80 dark:border-red-900/60 text-red-900 dark:text-red-200 text-xs shadow-sm">
+                        <p className="font-bold mb-1">Route Planning Notice</p>
+                        <p className="font-medium">{error}</p>
+                      </div>
+                    )}
+
+                    <RouteDetails
+                      routeData={displayedRouteData}
+                      onSelectAlternateRoute={handleSelectAlternate}
+                      onResetToOptimal={handleResetToOptimal}
+                      isAlternateSelected={isAlternateSelected}
+                      onStartNavigation={handleStartNavigation}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -813,8 +976,15 @@ export default function Home() {
               estimatedTime={displayedRouteData.time}
               voiceEnabled={voiceEnabled}
               sourceCity={displayedRouteData.path[0]}
-              destinationCity={displayedRouteData.path[displayedRouteData.path.length - 1]}
+              destinationCity={
+                displayedRouteData.path[displayedRouteData.path.length - 1]
+              }
               currentSpeedKmh={currentSpeedKmh}
+              speedStatus={speedStatus}
+              gpsLost={gpsLost}
+              gpsAccuracyMeters={gpsAccuracy}
+              isMapFollowActive={isMapFollowActive}
+              onRecenterMap={handleRecenterMap}
               onToggleVoice={handleToggleVoice}
               onNextStep={handleNextStep}
               onPrevStep={handlePrevStep}
